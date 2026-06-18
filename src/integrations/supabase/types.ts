@@ -122,6 +122,7 @@ export type Database = {
           dos: string | null
           id: string
           is_primary_billable: boolean | null
+          last_updated_upload_id: string | null
           mrn: string | null
           pay_date: string | null
           pri_ins: string | null
@@ -130,6 +131,7 @@ export type Database = {
           pt_name: string | null
           revenue: number | null
           service_category: string | null
+          upload_id: string | null
           uploaded_at: string
           visit_type: string | null
         }
@@ -144,6 +146,7 @@ export type Database = {
           dos?: string | null
           id?: string
           is_primary_billable?: boolean | null
+          last_updated_upload_id?: string | null
           mrn?: string | null
           pay_date?: string | null
           pri_ins?: string | null
@@ -152,6 +155,7 @@ export type Database = {
           pt_name?: string | null
           revenue?: number | null
           service_category?: string | null
+          upload_id?: string | null
           uploaded_at?: string
           visit_type?: string | null
         }
@@ -166,6 +170,7 @@ export type Database = {
           dos?: string | null
           id?: string
           is_primary_billable?: boolean | null
+          last_updated_upload_id?: string | null
           mrn?: string | null
           pay_date?: string | null
           pri_ins?: string | null
@@ -174,10 +179,26 @@ export type Database = {
           pt_name?: string | null
           revenue?: number | null
           service_category?: string | null
+          upload_id?: string | null
           uploaded_at?: string
           visit_type?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "claims_raw_last_updated_upload_id_fkey"
+            columns: ["last_updated_upload_id"]
+            isOneToOne: false
+            referencedRelation: "upload_history"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claims_raw_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "upload_history"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       company_access: {
         Row: {
