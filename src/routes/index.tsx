@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText, DollarSign, AlertTriangle, Clock, CalendarIcon, Download,
   TrendingUp, CheckCircle2, XCircle, Percent, Layers, X,
