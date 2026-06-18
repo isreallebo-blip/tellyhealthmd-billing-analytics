@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { Activity, LayoutDashboard, FileText, Users, Settings, BookOpen, LogOut, Stethoscope } from "lucide-react";
+import { Activity, LayoutDashboard, FileText, Users, Settings, BookOpen, LogOut, Stethoscope, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Profile } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Claims", url: "/claims", icon: FileText },
+  { title: "Upload", url: "/upload", icon: Upload },
   { title: "CPT Reference", url: "/cpt-reference", icon: BookOpen },
 ];
 
