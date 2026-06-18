@@ -79,11 +79,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "TellyHealthMD Billing Analytics" },
-      { name: "description", content: "Medical billing analytics for TellyHealthMD." },
+      { name: "description", content: "Billing analytics for TellyHealthMD." },
       { property: "og:title", content: "TellyHealthMD Billing Analytics" },
-      { property: "og:description", content: "Medical billing analytics for TellyHealthMD." },
+      { property: "og:description", content: "Billing analytics for TellyHealthMD." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "TellyHealthMD Billing Analytics" },
+      { name: "twitter:description", content: "Billing analytics for TellyHealthMD." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/aRdWL9A52mhbw32yZ8LLHiuw9pz1/social-images/social-1781809069563-Image.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/aRdWL9A52mhbw32yZ8LLHiuw9pz1/social-images/social-1781809069563-Image.webp" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -93,17 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
       },
       { rel: "stylesheet", href: appCss },
-      {
-        rel: "icon",
-        type: "image/svg+xml",
-        href:
-          "data:image/svg+xml;utf8," +
-          encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="%231F3864"/><path d="M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z" fill="white"/></svg>`.replace(/%23/g, "#")
-          ),
-      },
     ],
-
   }),
   shellComponent: RootShell,
   component: RootComponent,
