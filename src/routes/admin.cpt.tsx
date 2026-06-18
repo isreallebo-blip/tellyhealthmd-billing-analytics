@@ -97,7 +97,7 @@ function CptManager() {
       <PageHeader
         title="CPT Reference"
         description="Maintain CPT codes, billing types, and insurance-specific overrides."
-        actions={<AddCptDialog onCreated={loadAll} />}
+        actions={<AddCptDialog onCreated={loadAll} initialCode={Route.useSearch().addCpt} />}
       />
 
 
