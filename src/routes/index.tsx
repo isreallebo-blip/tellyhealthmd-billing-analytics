@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   FileText, DollarSign, AlertTriangle, Clock, CalendarIcon, Download,
@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
+
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -142,6 +143,8 @@ function Dashboard() {
 
   const [tab, setTab] = useState("insights");
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const navigate = useNavigate();
+
 
   // Apply default company filter from settings
   useEffect(() => {
@@ -168,12 +171,13 @@ function Dashboard() {
             <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
             <button
               type="button"
-              onClick={() => setTab("insights")}
+              onClick={() => navigate({ to: "/ai-insights" })}
               className="text-left text-sm flex-1 hover:underline"
             >
-              <span className="font-medium">{kpis.pastThreshold.toLocaleString()} claims</span>{" "}
-              are past {threshold} days unpaid — view in AI Insights →
+              ⚠ <span className="font-medium">{kpis.pastThreshold.toLocaleString()} claims</span>{" "}
+              are past {threshold} days unpaid — review in AI Insights →
             </button>
+
             <button
               type="button"
               aria-label="Dismiss"
@@ -259,7 +263,7 @@ function Dashboard() {
         {/* Tabs */}
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value="insights">AI Insights</TabsTrigger>
+            <TabsTrigger value="insights">AI Analysis</TabsTrigger>
             <TabsTrigger value="insurance">By Insurance</TabsTrigger>
             <TabsTrigger value="provider">By Provider</TabsTrigger>
             <TabsTrigger value="cpt">By CPT</TabsTrigger>
