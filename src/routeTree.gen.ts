@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UploadRouteImport } from './routes/upload'
 import { Route as CptReferenceRouteImport } from './routes/cpt-reference'
 import { Route as ClaimsRouteImport } from './routes/claims'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -17,6 +18,11 @@ import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminCptRouteImport } from './routes/admin.cpt'
 
+const UploadRoute = UploadRouteImport.update({
+  id: '/upload',
+  path: '/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CptReferenceRoute = CptReferenceRouteImport.update({
   id: '/cpt-reference',
   path: '/cpt-reference',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/upload': typeof UploadRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/upload': typeof UploadRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/upload': typeof UploadRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/upload'
     | '/admin/cpt'
     | '/admin/settings'
     | '/admin/users'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/upload'
     | '/admin/cpt'
     | '/admin/settings'
     | '/admin/users'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/upload'
     | '/admin/cpt'
     | '/admin/settings'
     | '/admin/users'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ClaimsRoute: typeof ClaimsRoute
   CptReferenceRoute: typeof CptReferenceRoute
+  UploadRoute: typeof UploadRoute
   AdminCptRoute: typeof AdminCptRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminUsersRoute: typeof AdminUsersRoute
@@ -123,6 +136,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/upload': {
+      id: '/upload'
+      path: '/upload'
+      fullPath: '/upload'
+      preLoaderRoute: typeof UploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cpt-reference': {
       id: '/cpt-reference'
       path: '/cpt-reference'
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ClaimsRoute: ClaimsRoute,
   CptReferenceRoute: CptReferenceRoute,
+  UploadRoute: UploadRoute,
   AdminCptRoute: AdminCptRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminUsersRoute: AdminUsersRoute,
