@@ -60,7 +60,18 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <NavGroup label="Workspace">
             {buildMainItems(isAdmin).map((i) => (
-              <NavLink key={i.url} url={i.url} icon={i.icon} active={isActive(i.url)}>
+              <NavLink
+                key={i.url}
+                url={i.url}
+                icon={i.icon}
+                active={isActive(i.url)}
+                badge={i.url === "/upload" && activeUploads > 0 ? (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-medium text-amber-300">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {activeUploads} uploading
+                  </span>
+                ) : null}
+              >
                 {i.title}
               </NavLink>
             ))}
