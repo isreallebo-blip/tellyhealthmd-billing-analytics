@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   FileText, DollarSign, AlertTriangle, Clock, CalendarIcon, Download,
-  TrendingUp, CheckCircle2, XCircle, Percent, Layers,
+  TrendingUp, CheckCircle2, XCircle, Percent, Layers, X,
 } from "lucide-react";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
@@ -140,10 +140,52 @@ function Dashboard() {
 
   const kpis = useMemo(() => computeKpis(filtered, threshold), [filtered, threshold]);
 
+  const [tab, setTab] = useState("insights");
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Apply default company filter from settings
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("tellyhealth:default-companies");
+      if (saved) {
+        const parsed = JSON.parse(saved) as string[];
+        if (Array.isArray(parsed) && parsed.length) setCompanies(parsed);
+      }
+    } catch {}
+  }, []);
+
   return (
     <>
-      <PageHeader title="Analytics Dashboard" description="Filter, slice, and export billing performance." />
-      <div className="p-6 lg:p-8 space-y-6">
+      <PageHeader
+        title="Analytics Dashboard"
+        description="Filter, slice, and export billing performance."
+        breadcrumbs={[{ label: "Home" }]}
+      />
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
+        {/* Alert banner */}
+        {!bannerDismissed && kpis.pastThreshold > 0 && (
+          <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3">
+            <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
+            <button
+              type="button"
+              onClick={() => setTab("insights")}
+              className="text-left text-sm flex-1 hover:underline"
+            >
+              <span className="font-medium">{kpis.pastThreshold.toLocaleString()} claims</span>{" "}
+              are past {threshold} days unpaid — view in AI Insights →
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setBannerDismissed(true)}
+              className="text-amber-900/70 hover:text-amber-900"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+
         {/* Sticky Filters */}
         <Card className="sticky top-0 z-20 shadow-sm">
           <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -215,7 +257,7 @@ function Dashboard() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="insights" className="w-full">
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="insights">AI Insights</TabsTrigger>
             <TabsTrigger value="insurance">By Insurance</TabsTrigger>
