@@ -248,6 +248,56 @@ export type Database = {
         }
         Relationships: []
       }
+      upload_history: {
+        Row: {
+          company: string
+          created_at: string
+          errors: Json | null
+          filename: string
+          id: string
+          rows_inserted: number
+          rows_processed: number
+          rows_skipped: number
+          rows_updated: number
+          unknown_cpt_count: number
+          uploaded_by: string | null
+        }
+        Insert: {
+          company: string
+          created_at?: string
+          errors?: Json | null
+          filename: string
+          id?: string
+          rows_inserted?: number
+          rows_processed?: number
+          rows_skipped?: number
+          rows_updated?: number
+          unknown_cpt_count?: number
+          uploaded_by?: string | null
+        }
+        Update: {
+          company?: string
+          created_at?: string
+          errors?: Json | null
+          filename?: string
+          id?: string
+          rows_inserted?: number
+          rows_processed?: number
+          rows_skipped?: number
+          rows_updated?: number
+          unknown_cpt_count?: number
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "upload_history_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
