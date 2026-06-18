@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/multi-select";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -214,8 +215,9 @@ function Dashboard() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="insurance" className="w-full">
+        <Tabs defaultValue="insights" className="w-full">
           <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="insights">AI Insights</TabsTrigger>
             <TabsTrigger value="insurance">By Insurance</TabsTrigger>
             <TabsTrigger value="provider">By Provider</TabsTrigger>
             <TabsTrigger value="cpt">By CPT</TabsTrigger>
@@ -224,6 +226,7 @@ function Dashboard() {
             <TabsTrigger value="cross">Cross Analysis</TabsTrigger>
           </TabsList>
 
+          <TabsContent value="insights"><AiInsightsPanel autoRunSignal={useAutoRunSignal()} /></TabsContent>
           <TabsContent value="insurance"><GroupTab data={filtered} groupKey="pri_ins" groupLabel="Insurance" threshold={threshold} /></TabsContent>
           <TabsContent value="provider"><GroupTab data={filtered} groupKey="prov_name" groupLabel="Provider" threshold={threshold} /></TabsContent>
           <TabsContent value="cpt"><CptTab data={filtered} cptRef={cptRef} /></TabsContent>
