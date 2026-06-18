@@ -1,11 +1,12 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
-  Upload, Sparkles, Brain,
+  Upload, Sparkles, Brain, Loader2,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import type { Profile } from "@/hooks/use-auth";
+import { useActiveUploadCount } from "@/hooks/use-active-upload-count";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
