@@ -257,7 +257,7 @@ function Dashboard() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="insights" className="w-full">
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="insights">AI Insights</TabsTrigger>
             <TabsTrigger value="insurance">By Insurance</TabsTrigger>
