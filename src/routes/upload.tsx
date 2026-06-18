@@ -93,6 +93,8 @@ function emptyStats(): CompanyStats {
 
 function UploadPage() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
