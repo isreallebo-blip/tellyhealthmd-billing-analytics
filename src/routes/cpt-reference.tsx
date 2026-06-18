@@ -48,7 +48,7 @@ function CptPage() {
                   <TableCell><code className="text-xs">{r.cpt_code}</code></TableCell>
                   <TableCell>{r.description}</TableCell>
                   <TableCell>{r.service_category}</TableCell>
-                  <TableCell>{r.billing_type}</TableCell>
+                  <TableCell><BillingTypeBadge type={r.billing_type} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>
