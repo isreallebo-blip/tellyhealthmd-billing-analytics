@@ -162,6 +162,29 @@ function Dashboard() {
         breadcrumbs={[{ label: "Home" }]}
       />
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
+        {/* Alert banner */}
+        {!bannerDismissed && kpis.pastThreshold > 0 && (
+          <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3">
+            <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
+            <button
+              type="button"
+              onClick={() => setTab("insights")}
+              className="text-left text-sm flex-1 hover:underline"
+            >
+              <span className="font-medium">{kpis.pastThreshold.toLocaleString()} claims</span>{" "}
+              are past {threshold} days unpaid — view in AI Insights →
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setBannerDismissed(true)}
+              className="text-amber-900/70 hover:text-amber-900"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
 
         {/* Sticky Filters */}
         <Card className="sticky top-0 z-20 shadow-sm">
