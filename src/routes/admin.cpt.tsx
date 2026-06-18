@@ -185,13 +185,20 @@ function CptManager() {
   );
 }
 
-function AddCptDialog({ onCreated }: { onCreated: () => void }) {
+function AddCptDialog({ onCreated, initialCode }: { onCreated: () => void; initialCode?: string }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [desc, setDesc] = useState("");
   const [cat, setCat] = useState<string>("Visit");
   const [type, setType] = useState<string>("Primary");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (initialCode) {
+      setCode(initialCode);
+      setOpen(true);
+    }
+  }, [initialCode]);
 
   async function save() {
     if (!code.trim()) return toast.error("CPT code is required");
