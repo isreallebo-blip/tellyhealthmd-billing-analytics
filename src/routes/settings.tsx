@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/multi-select";
+import { UserManagement } from "@/components/user-management";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({
@@ -28,6 +29,7 @@ const FILTER_KEY = "tellyhealth:default-companies";
 
 function SettingsPage() {
   const { user, profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const [threshold, setThreshold] = useState(30);
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
@@ -102,10 +104,11 @@ function SettingsPage() {
         description="Account, alerts, and dashboard defaults."
         breadcrumbs={[{ label: "Home", to: "/" }, { label: "Settings" }]}
       />
-      <div className="p-4 md:p-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="p-4 md:p-8 space-y-6">
+        {/* 1. Your Account */}
         <Card>
           <CardHeader>
-            <CardTitle>Your account</CardTitle>
+            <CardTitle>Your Account</CardTitle>
             <CardDescription>Update your display name and password.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -135,15 +138,16 @@ function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* 2. Payment Alert Threshold */}
         <Card>
           <CardHeader>
-            <CardTitle>Payment alert threshold</CardTitle>
+            <CardTitle>Payment Alert Threshold</CardTitle>
             <CardDescription>
               Flag claims that take longer than this many days to be paid.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {[30, 60, 90].map((d) => (
                 <Button key={d} variant={threshold === d ? "default" : "outline"} onClick={() => setThreshold(d)}>
                   {d} days
@@ -163,9 +167,13 @@ function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+        {/* 3. User Management (admin only) */}
+        {isAdmin && <UserManagement />}
+
+        {/* 4. Default Company Filter */}
+        <Card>
           <CardHeader>
-            <CardTitle>Default company filter</CardTitle>
+            <CardTitle>Default Company Filter</CardTitle>
             <CardDescription>
               Companies pre-selected when you open the dashboard.
             </CardDescription>
