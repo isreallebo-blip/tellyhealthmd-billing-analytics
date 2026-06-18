@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
@@ -373,7 +373,7 @@ function UploadPage() {
         </Card>
       </div>
 
-      <Dialog open={!!summary} onOpenChange={(o) => !o && setSummary(null)}>
+      <Dialog open={!!summary} onOpenChange={(o) => { if (!o) { setSummary(null); navigate({ to: "/" }); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Upload Complete</DialogTitle>
@@ -411,8 +411,11 @@ function UploadPage() {
             </div>
           )}
           <DialogFooter>
-            <Button onClick={() => setSummary(null)}>Close</Button>
+            <Button onClick={() => { setSummary(null); navigate({ to: "/" }); }}>
+              View Dashboard
+            </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
     </>
