@@ -137,12 +137,13 @@ function NavGroup({ label, children }: { label: string; children: React.ReactNod
 }
 
 function NavLink({
-  url, icon: Icon, active, children,
+  url, icon: Icon, active, children, badge,
 }: {
   url: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   children: React.ReactNode;
+  badge?: React.ReactNode;
 }) {
   return (
     <Link
@@ -156,6 +157,7 @@ function NavLink({
     >
       <Icon className="h-4 w-4" />
       <span>{children}</span>
+      {badge}
     </Link>
   );
 }
