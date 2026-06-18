@@ -41,6 +41,21 @@ function parseBool(v: any): boolean {
   return s === "true" || s === "yes" || s === "y" || s === "1" || s === "denied";
 }
 
+type Normalized = {
+  rowIndex: number;
+  company: string;
+  acct: string;
+  dos: string;
+  cpt: string;
+  payload: Record<string, any>;
+  revenue: number | null;
+  pay_date: string | null;
+  days_to_pmt: number | null;
+  denied_claim: boolean;
+};
+
+const BATCH_SIZE = 500;
+
 async function processRows(jobId: string, userId: string, filename: string, rows: Row[]) {
   const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -52,6 +67,13 @@ async function processRows(jobId: string, userId: string, filename: string, rows
     unknownCpts: Record<string, number>;
     uploadHistoryId?: string;
   }> = {};
+
+  function ensureCompanyState(company: string) {
+    if (!perCompany[company]) {
+      perCompany[company] = { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0, skippedRows: [], unknownCpts: {} };
+    }
+    return perCompany[company];
+  }
 
   try {
     const [{ data: cptRef }, { data: overrides }] = await Promise.all([
@@ -67,43 +89,22 @@ async function processRows(jobId: string, userId: string, filename: string, rows
       overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.override_billing_type)
     );
 
-    async function ensureUploadHistory(company: string): Promise<string | null> {
-      const cs = perCompany[company];
-      if (cs.uploadHistoryId) return cs.uploadHistoryId;
-      const { data } = await admin.from("upload_history").insert({
-        filename, company, uploaded_by: userId,
-        rows_processed: 0, rows_inserted: 0, rows_updated: 0, rows_skipped: 0, unknown_cpt_count: 0,
-      }).select("id").single();
-      if (data) cs.uploadHistoryId = data.id;
-      return cs.uploadHistoryId ?? null;
-    }
-
-    let lastProgressAt = 0;
-
+    // ── Phase 1: normalize every row in memory ──
+    const normalized: Normalized[] = [];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       processed++;
       try {
         const company = String(r["Company"] ?? "").trim();
-        if (!company) {
-          skipped++;
-          continue;
-        }
-        if (!perCompany[company]) {
-          perCompany[company] = { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0, skippedRows: [], unknownCpts: {} };
-        }
-        const cs = perCompany[company];
+        if (!company) { skipped++; continue; }
+        const cs = ensureCompanyState(company);
         cs.processed++;
-        const uploadHistoryId = await ensureUploadHistory(company);
 
         const cpt = String(r["CPT"] ?? "").trim().toUpperCase();
         const pri_ins = String(r["Pri_Ins"] ?? "").trim().toUpperCase();
         const acct = String(r["Acct"] ?? "").trim();
         const dos = parseDate(r["DOS"]);
-        if (!acct || !dos || !cpt) {
-          skipped++; cs.skipped++;
-          continue;
-        }
+        if (!acct || !dos || !cpt) { skipped++; cs.skipped++; continue; }
 
         const ref = cptMap.get(cpt);
         let billing_type = ref?.billing_type ?? null;
@@ -121,13 +122,7 @@ async function processRows(jobId: string, userId: string, filename: string, rows
         const pay_date = parseDate(r["paydate"]);
         const denied_claim = parseBool(r["Denied Claim"]);
 
-        const { data: existing } = await admin
-          .from("claims_raw")
-          .select("id,revenue")
-          .eq("acct", acct).eq("dos", dos).eq("cpt", cpt).eq("company", company)
-          .maybeSingle();
-
-        const payload: any = {
+        const payload: Record<string, any> = {
           company,
           pt_name: r["PT Name"] ?? null,
           dob: parseDate(r["DOB"]),
@@ -143,39 +138,124 @@ async function processRows(jobId: string, userId: string, filename: string, rows
           acct,
           service_category,
           is_primary_billable,
-          upload_id: uploadHistoryId,
         };
 
-        if (!existing) {
-          const { error } = await admin.from("claims_raw").insert(payload);
-          if (error) throw error;
-          inserted++; cs.inserted++;
-        } else {
-          const oldRev = existing.revenue;
-          const hasNewPmt = revenue != null && (oldRev == null || Number(oldRev) === 0);
-          if (hasNewPmt) {
-            const { error } = await admin
-              .from("claims_raw")
-              .update({ revenue, pay_date, days_to_pmt, denied_claim, last_updated_upload_id: uploadHistoryId })
-              .eq("id", existing.id);
-            if (error) throw error;
-            updated++; cs.updated++;
-            cs.skippedRows.push({ acct, dos, cpt, company, reason: "Duplicate - updated" });
-          } else {
-            skipped++; cs.skipped++;
-            cs.skippedRows.push({ acct, dos, cpt, company, reason: "Duplicate - no new payment" });
-          }
-        }
+        normalized.push({ rowIndex: i, company, acct, dos, cpt, payload, revenue, pay_date, days_to_pmt, denied_claim });
       } catch (err: any) {
         errors.push(`Row ${i + 2}: ${err?.message ?? "error"}`);
       }
+    }
 
-      // Update progress at most every 250 rows or every 1s
+    // ── Phase 2: ensure upload_history row for every company seen ──
+    const companies = Object.keys(perCompany);
+    await Promise.all(companies.map(async (company) => {
+      const cs = perCompany[company];
+      const { data } = await admin.from("upload_history").insert({
+        filename, company, uploaded_by: userId,
+        rows_processed: 0, rows_inserted: 0, rows_updated: 0, rows_skipped: 0, unknown_cpt_count: 0,
+      }).select("id").single();
+      if (data) cs.uploadHistoryId = data.id;
+    }));
+
+    // ── Phase 3: process in batches of BATCH_SIZE ──
+    let lastProgressAt = 0;
+    for (let start = 0; start < normalized.length; start += BATCH_SIZE) {
+      const batch = normalized.slice(start, start + BATCH_SIZE);
+
+      // Bulk lookup existing rows for the batch.
+      // Multi-column IN isn't supported via PostgREST, so we filter by the
+      // distinct values per column and de-dup client-side using a composite key.
+      const accts = Array.from(new Set(batch.map((b) => b.acct)));
+      const doses = Array.from(new Set(batch.map((b) => b.dos)));
+      const cpts = Array.from(new Set(batch.map((b) => b.cpt)));
+      const companiesInBatch = Array.from(new Set(batch.map((b) => b.company)));
+
+      const { data: existingRows, error: lookupErr } = await admin
+        .from("claims_raw")
+        .select("id,acct,dos,cpt,company,revenue")
+        .in("company", companiesInBatch)
+        .in("acct", accts)
+        .in("dos", doses)
+        .in("cpt", cpts);
+      if (lookupErr) throw lookupErr;
+
+      const existingMap = new Map<string, { id: string; revenue: number | null }>();
+      (existingRows ?? []).forEach((r: any) => {
+        existingMap.set(`${r.company}|${r.acct}|${r.dos}|${r.cpt}`, { id: r.id, revenue: r.revenue });
+      });
+
+      const toInsert: Record<string, any>[] = [];
+      const toUpdate: { id: string; revenue: number | null; pay_date: string | null; days_to_pmt: number | null; denied_claim: boolean; uploadHistoryId: string | undefined; item: Normalized }[] = [];
+
+      for (const item of batch) {
+        const cs = ensureCompanyState(item.company);
+        const uploadHistoryId = cs.uploadHistoryId;
+        const key = `${item.company}|${item.acct}|${item.dos}|${item.cpt}`;
+        const existing = existingMap.get(key);
+
+        if (!existing) {
+          toInsert.push({ ...item.payload, upload_id: uploadHistoryId });
+        } else {
+          const oldRev = existing.revenue;
+          const hasNewPmt = item.revenue != null && (oldRev == null || Number(oldRev) === 0);
+          if (hasNewPmt) {
+            toUpdate.push({
+              id: existing.id,
+              revenue: item.revenue,
+              pay_date: item.pay_date,
+              days_to_pmt: item.days_to_pmt,
+              denied_claim: item.denied_claim,
+              uploadHistoryId,
+              item,
+            });
+          } else {
+            skipped++; cs.skipped++;
+            cs.skippedRows.push({ acct: item.acct, dos: item.dos, cpt: item.cpt, company: item.company, reason: "Duplicate - no new payment" });
+          }
+        }
+      }
+
+      // Bulk insert new rows
+      if (toInsert.length) {
+        const { error: insErr } = await admin.from("claims_raw").insert(toInsert);
+        if (insErr) {
+          errors.push(`Batch insert (${toInsert.length} rows): ${insErr.message}`);
+        } else {
+          inserted += toInsert.length;
+          for (const row of toInsert) {
+            const cs = ensureCompanyState(row.company);
+            cs.inserted++;
+          }
+        }
+      }
+
+      // Per-row updates (rare path)
+      for (const u of toUpdate) {
+        const cs = ensureCompanyState(u.item.company);
+        const { error: upErr } = await admin
+          .from("claims_raw")
+          .update({
+            revenue: u.revenue,
+            pay_date: u.pay_date,
+            days_to_pmt: u.days_to_pmt,
+            denied_claim: u.denied_claim,
+            last_updated_upload_id: u.uploadHistoryId,
+          })
+          .eq("id", u.id);
+        if (upErr) {
+          errors.push(`Row ${u.item.rowIndex + 2} update: ${upErr.message}`);
+        } else {
+          updated++; cs.updated++;
+          cs.skippedRows.push({ acct: u.item.acct, dos: u.item.dos, cpt: u.item.cpt, company: u.item.company, reason: "Duplicate - updated" });
+        }
+      }
+
       const now = Date.now();
-      if (processed % 250 === 0 || now - lastProgressAt > 1000) {
+      if (now - lastProgressAt > 1000 || start + BATCH_SIZE >= normalized.length) {
         lastProgressAt = now;
         await admin.from("upload_jobs").update({
-          processed_rows: processed, inserted, updated, skipped, unknown_cpt: unknownCpt,
+          processed_rows: Math.min(start + BATCH_SIZE, normalized.length),
+          inserted, updated, skipped, unknown_cpt: unknownCpt,
         }).eq("id", jobId);
       }
     }
