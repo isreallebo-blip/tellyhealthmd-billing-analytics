@@ -1,8 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FileText, DollarSign, AlertTriangle, Clock, CalendarIcon, Download,
-  TrendingUp, CheckCircle2, XCircle, Percent, Layers,
+  TrendingUp, CheckCircle2, XCircle, Percent, Layers, X,
 } from "lucide-react";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
