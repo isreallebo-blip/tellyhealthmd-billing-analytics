@@ -6,14 +6,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Upload, FileSpreadsheet, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -44,11 +41,16 @@ type HistoryRow = {
   unknown_cpt_count: number;
 };
 
-type Summary = {
+type CompanyStats = {
+  processed: number;
   inserted: number;
   updated: number;
   skipped: number;
   unknownCpt: number;
+};
+
+type Summary = {
+  perCompany: Record<string, CompanyStats>;
   errors: { row: number; message: string }[];
 };
 
@@ -61,7 +63,6 @@ const COLUMN_KEYS = [
 function parseDate(v: any): string | null {
   if (v == null || v === "") return null;
   if (typeof v === "number") {
-    // Excel serial date
     const d = XLSX.SSF.parse_date_code(v);
     if (!d) return null;
     const mm = String(d.m).padStart(2, "0");
@@ -86,12 +87,12 @@ function parseBool(v: any): boolean {
   return s === "true" || s === "yes" || s === "y" || s === "1" || s === "denied";
 }
 
+function emptyStats(): CompanyStats {
+  return { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0 };
+}
+
 function UploadPage() {
   const { profile } = useAuth();
-  const isAdmin = profile?.role === "admin";
-  const [companies, setCompanies] = useState<string[]>([]);
-  const [selectedCompany, setSelectedCompany] = useState<string>("");
-  const [customCompany, setCustomCompany] = useState("");
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -100,43 +101,18 @@ function UploadPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const loadCompanies = useCallback(async () => {
-    if (isAdmin) {
-      const [{ data: ca }, { data: cl }] = await Promise.all([
-        supabase.from("company_access").select("company_name"),
-        supabase.from("claims_raw").select("company").limit(1000),
-      ]);
-      const set = new Set<string>();
-      ca?.forEach((r: any) => r.company_name && set.add(r.company_name));
-      cl?.forEach((r: any) => r.company && set.add(r.company));
-      setCompanies(Array.from(set).sort());
-    } else {
-      const { data } = await supabase
-        .from("company_access")
-        .select("company_name")
-        .eq("user_id", profile?.id ?? "");
-      const list = (data ?? []).map((r: any) => r.company_name).filter(Boolean);
-      setCompanies(Array.from(new Set(list)).sort());
-    }
-  }, [isAdmin, profile?.id]);
-
   const loadHistory = useCallback(async () => {
     const { data } = await supabase
       .from("upload_history")
       .select("id,filename,company,created_at,rows_processed,rows_inserted,rows_updated,rows_skipped,unknown_cpt_count")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
     setHistory((data ?? []) as HistoryRow[]);
   }, []);
 
   useEffect(() => {
-    if (profile) {
-      loadCompanies();
-      loadHistory();
-    }
-  }, [profile, loadCompanies, loadHistory]);
-
-  const effectiveCompany = selectedCompany === "__custom__" ? customCompany.trim() : selectedCompany;
+    if (profile) loadHistory();
+  }, [profile, loadHistory]);
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -147,7 +123,6 @@ function UploadPage() {
 
   async function processFile() {
     if (!file) return toast.error("Choose a file first");
-    if (!effectiveCompany) return toast.error("Select a company");
     if (!profile) return;
 
     setProcessing(true);
@@ -160,7 +135,6 @@ function UploadPage() {
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
 
-      // Preload CPT reference + overrides
       const [{ data: cptRef }, { data: overrides }] = await Promise.all([
         supabase.from("cpt_reference").select("cpt_code,service_category,billing_type"),
         supabase.from("cpt_insurance_overrides").select("cpt_code,insurance_code,override_billing_type"),
@@ -174,24 +148,35 @@ function UploadPage() {
         overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.override_billing_type)
       );
 
-      const summary: Summary = { inserted: 0, updated: 0, skipped: 0, unknownCpt: 0, errors: [] };
+      const perCompany: Record<string, CompanyStats> = {};
+      const errors: { row: number; message: string }[] = [];
 
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
+        const company = String(r["Company"] ?? "").trim();
+        if (!company) {
+          errors.push({ row: i + 2, message: "Missing Company value" });
+          setProgress(Math.round(((i + 1) / rows.length) * 100));
+          continue;
+        }
+        if (!perCompany[company]) perCompany[company] = emptyStats();
+        const stats = perCompany[company];
+        stats.processed++;
+
         try {
           const cpt = String(r["CPT"] ?? "").trim().toUpperCase();
           const pri_ins = String(r["Pri_Ins"] ?? "").trim().toUpperCase();
           const acct = String(r["Acct"] ?? "").trim();
           const dos = parseDate(r["DOS"]);
           if (!acct || !dos || !cpt) {
-            summary.errors.push({ row: i + 2, message: "Missing required Acct / DOS / CPT" });
+            errors.push({ row: i + 2, message: "Missing required Acct / DOS / CPT" });
             continue;
           }
 
           const ref = cptMap.get(cpt);
           let billing_type = ref?.billing_type ?? null;
-          let service_category = ref?.service_category ?? null;
-          if (!ref) summary.unknownCpt++;
+          const service_category = ref?.service_category ?? null;
+          if (!ref) stats.unknownCpt++;
 
           const ov = overrideMap.get(`${cpt}|${pri_ins}`);
           if (ov) billing_type = ov;
@@ -203,11 +188,6 @@ function UploadPage() {
           const pay_date = parseDate(r["paydate"]);
           const denied_claim = parseBool(r["Denied Claim"]);
 
-          const rowCompany = String(r["Company"] ?? effectiveCompany).trim() || effectiveCompany;
-          // Force selected company so RLS / dedup is consistent
-          const company = effectiveCompany;
-
-          // Check existing
           const { data: existing } = await supabase
             .from("claims_raw")
             .select("id,revenue")
@@ -238,7 +218,7 @@ function UploadPage() {
           if (!existing) {
             const { error } = await supabase.from("claims_raw").insert(payload);
             if (error) throw error;
-            summary.inserted++;
+            stats.inserted++;
           } else {
             const oldRev = existing.revenue;
             const hasNewPmt = revenue != null && (oldRev == null || Number(oldRev) === 0);
@@ -248,35 +228,39 @@ function UploadPage() {
                 .update({ revenue, pay_date, days_to_pmt, denied_claim })
                 .eq("id", existing.id);
               if (error) throw error;
-              summary.updated++;
+              stats.updated++;
             } else {
-              summary.skipped++;
+              stats.skipped++;
             }
           }
-          void rowCompany;
         } catch (err: any) {
-          summary.errors.push({ row: i + 2, message: err?.message ?? "Unknown error" });
+          errors.push({ row: i + 2, message: err?.message ?? "Unknown error" });
         }
         setProgress(Math.round(((i + 1) / rows.length) * 100));
       }
 
-      await supabase.from("upload_history").insert({
-        filename: file.name,
-        company: effectiveCompany,
-        uploaded_by: profile.id,
-        rows_processed: rows.length,
-        rows_inserted: summary.inserted,
-        rows_updated: summary.updated,
-        rows_skipped: summary.skipped,
-        unknown_cpt_count: summary.unknownCpt,
-        errors: summary.errors.length ? summary.errors.slice(0, 100) : null,
-      });
+      // One history row per company
+      const companies = Object.keys(perCompany);
+      if (companies.length > 0) {
+        const errSlice = errors.length ? errors.slice(0, 100) : null;
+        const historyRows = companies.map((c) => ({
+          filename: file.name,
+          company: c,
+          uploaded_by: profile.id,
+          rows_processed: perCompany[c].processed,
+          rows_inserted: perCompany[c].inserted,
+          rows_updated: perCompany[c].updated,
+          rows_skipped: perCompany[c].skipped,
+          unknown_cpt_count: perCompany[c].unknownCpt,
+          errors: errSlice,
+        }));
+        await supabase.from("upload_history").insert(historyRows);
+      }
 
-      setSummary(summary);
+      setSummary({ perCompany, errors });
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
       loadHistory();
-      // Signal the dashboard to auto-run AI insights on next visit
       try { localStorage.setItem("tellyhealth:ai-autorun", String(Date.now())); } catch {}
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to process file");
@@ -285,7 +269,12 @@ function UploadPage() {
     }
   }
 
-  const canUpload = useMemo(() => !!file && !!effectiveCompany && !processing, [file, effectiveCompany, processing]);
+  const canUpload = useMemo(() => !!file && !processing, [file, processing]);
+
+  const summaryCompanies = summary ? Object.keys(summary.perCompany).sort() : [];
+  const totalUnknownCpt = summary
+    ? summaryCompanies.reduce((s, c) => s + summary.perCompany[c].unknownCpt, 0)
+    : 0;
 
   return (
     <>
@@ -320,27 +309,8 @@ function UploadPage() {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <Label>Company</Label>
-                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Select company…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                    {isAdmin && <SelectItem value="__custom__">+ New company…</SelectItem>}
-                  </SelectContent>
-                </Select>
-                {selectedCompany === "__custom__" && (
-                  <Input
-                    placeholder="New company name"
-                    className="mt-2"
-                    value={customCompany}
-                    onChange={(e) => setCustomCompany(e.target.value)}
-                  />
-                )}
+              <div className="text-sm text-muted-foreground">
+                Company is detected automatically from the <span className="font-medium text-foreground">Company</span> column in your file. Rows are grouped per company.
               </div>
 
               {processing && (
@@ -408,20 +378,27 @@ function UploadPage() {
           <DialogHeader>
             <DialogTitle>Upload Complete</DialogTitle>
             <DialogDescription>
-              {summary && (
-                <>
-                  <span className="font-medium text-foreground">{summary.inserted}</span> new records added,{" "}
-                  <span className="font-medium text-foreground">{summary.updated}</span> records updated with payment,{" "}
-                  <span className="font-medium text-foreground">{summary.skipped}</span> duplicates skipped.
-                </>
-              )}
+              Results grouped by company from the Company column.
             </DialogDescription>
           </DialogHeader>
-          {summary && summary.unknownCpt > 0 && (
+          {summary && summaryCompanies.length > 0 && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
+              {summaryCompanies.map((c) => {
+                const s = summary.perCompany[c];
+                return (
+                  <div key={c}>
+                    <span className="font-medium text-foreground">{c}:</span>{" "}
+                    {s.inserted} inserted, {s.updated} updated, {s.skipped} skipped
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {summary && totalUnknownCpt > 0 && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <div>
-                {summary.unknownCpt} rows had unknown CPT codes — review in the CPT Reference Manager.
+                {totalUnknownCpt} rows had unknown CPT codes — review in the CPT Reference Manager.
               </div>
             </div>
           )}
