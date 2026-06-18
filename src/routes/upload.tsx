@@ -276,6 +276,8 @@ function UploadPage() {
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
       loadHistory();
+      // Signal the dashboard to auto-run AI insights on next visit
+      try { localStorage.setItem("tellyhealth:ai-autorun", String(Date.now())); } catch {}
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to process file");
     } finally {
