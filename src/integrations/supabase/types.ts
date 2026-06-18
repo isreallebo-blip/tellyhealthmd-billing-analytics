@@ -265,6 +265,7 @@ export type Database = {
           email: string
           full_name: string | null
           id: string
+          is_active: boolean
           role: Database["public"]["Enums"]["app_role"]
         }
         Insert: {
@@ -272,6 +273,7 @@ export type Database = {
           email: string
           full_name?: string | null
           id: string
+          is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
         }
         Update: {
@@ -279,6 +281,7 @@ export type Database = {
           email?: string
           full_name?: string | null
           id?: string
+          is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
         }
         Relationships: []
