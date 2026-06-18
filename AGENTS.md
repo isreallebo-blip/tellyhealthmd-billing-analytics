@@ -8,3 +8,8 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+## Security Notes
+
+- **Never commit `.env` files to git.** `.env`, `.env.local`, and `.env.production` contain secrets and must stay local-only. They are already listed in `.gitignore`.
+- **IMPORTANT: Rotate Supabase keys if `.env` was ever committed to a public repo.** If the `.env` file has been exposed (e.g., pushed to GitHub), the Supabase credentials inside it should be rotated immediately to prevent unauthorized access.
