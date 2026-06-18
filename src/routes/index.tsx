@@ -701,3 +701,29 @@ function CrossTab({ data }: { data: Claim[] }) {
     </Card>
   );
 }
+
+/* ────────────── auto-run signal ────────────── */
+
+const AUTO_RUN_KEY = "tellyhealth:ai-autorun";
+
+function useAutoRunSignal() {
+  const [signal, setSignal] = useState(0);
+  useEffect(() => {
+    const consume = () => {
+      const v = localStorage.getItem(AUTO_RUN_KEY);
+      if (v) {
+        localStorage.removeItem(AUTO_RUN_KEY);
+        setSignal((s) => s + 1);
+      }
+    };
+    consume();
+    const onStorage = (e: StorageEvent) => { if (e.key === AUTO_RUN_KEY && e.newValue) consume(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  return signal;
+}
+
+export function triggerAiAutoRun() {
+  try { localStorage.setItem(AUTO_RUN_KEY, String(Date.now())); } catch {}
+}
