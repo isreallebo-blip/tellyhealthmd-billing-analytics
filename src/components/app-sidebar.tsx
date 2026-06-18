@@ -29,6 +29,7 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
   const isAdmin = profile?.role === "admin";
+  const activeUploads = useActiveUploadCount();
 
   async function signOut() {
     await supabase.auth.signOut();
