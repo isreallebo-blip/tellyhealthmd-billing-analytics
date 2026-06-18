@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/multi-select";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -214,8 +215,9 @@ function Dashboard() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="insurance" className="w-full">
+        <Tabs defaultValue="insights" className="w-full">
           <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="insights">AI Insights</TabsTrigger>
             <TabsTrigger value="insurance">By Insurance</TabsTrigger>
             <TabsTrigger value="provider">By Provider</TabsTrigger>
             <TabsTrigger value="cpt">By CPT</TabsTrigger>
@@ -224,6 +226,7 @@ function Dashboard() {
             <TabsTrigger value="cross">Cross Analysis</TabsTrigger>
           </TabsList>
 
+          <TabsContent value="insights"><AiInsightsPanel autoRunSignal={useAutoRunSignal()} /></TabsContent>
           <TabsContent value="insurance"><GroupTab data={filtered} groupKey="pri_ins" groupLabel="Insurance" threshold={threshold} /></TabsContent>
           <TabsContent value="provider"><GroupTab data={filtered} groupKey="prov_name" groupLabel="Provider" threshold={threshold} /></TabsContent>
           <TabsContent value="cpt"><CptTab data={filtered} cptRef={cptRef} /></TabsContent>
@@ -697,4 +700,30 @@ function CrossTab({ data }: { data: Claim[] }) {
       </div>
     </Card>
   );
+}
+
+/* ────────────── auto-run signal ────────────── */
+
+const AUTO_RUN_KEY = "tellyhealth:ai-autorun";
+
+function useAutoRunSignal() {
+  const [signal, setSignal] = useState(0);
+  useEffect(() => {
+    const consume = () => {
+      const v = localStorage.getItem(AUTO_RUN_KEY);
+      if (v) {
+        localStorage.removeItem(AUTO_RUN_KEY);
+        setSignal((s) => s + 1);
+      }
+    };
+    consume();
+    const onStorage = (e: StorageEvent) => { if (e.key === AUTO_RUN_KEY && e.newValue) consume(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  return signal;
+}
+
+export function triggerAiAutoRun() {
+  try { localStorage.setItem(AUTO_RUN_KEY, String(Date.now())); } catch {}
 }

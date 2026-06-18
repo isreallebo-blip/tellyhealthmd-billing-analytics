@@ -13,6 +13,7 @@ import { Route as UploadRouteImport } from './routes/upload'
 import { Route as CptReferenceRouteImport } from './routes/cpt-reference'
 import { Route as ClaimsRouteImport } from './routes/claims'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AiTrainingRouteImport } from './routes/ai-training'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
@@ -38,6 +39,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AiTrainingRoute = AiTrainingRouteImport.update({
+  id: '/ai-training',
+  path: '/ai-training',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -61,6 +67,7 @@ const AdminCptRoute = AdminCptRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/ai-training': typeof AiTrainingRoute
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ai-training': typeof AiTrainingRoute
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/ai-training': typeof AiTrainingRoute
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/ai-training'
     | '/auth'
     | '/claims'
     | '/cpt-reference'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/ai-training'
     | '/auth'
     | '/claims'
     | '/cpt-reference'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/ai-training'
     | '/auth'
     | '/claims'
     | '/cpt-reference'
@@ -125,6 +137,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AiTrainingRoute: typeof AiTrainingRoute
   AuthRoute: typeof AuthRoute
   ClaimsRoute: typeof ClaimsRoute
   CptReferenceRoute: typeof CptReferenceRoute
@@ -164,6 +177,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/ai-training': {
+      id: '/ai-training'
+      path: '/ai-training'
+      fullPath: '/ai-training'
+      preLoaderRoute: typeof AiTrainingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -197,6 +217,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AiTrainingRoute: AiTrainingRoute,
   AuthRoute: AuthRoute,
   ClaimsRoute: ClaimsRoute,
   CptReferenceRoute: CptReferenceRoute,
