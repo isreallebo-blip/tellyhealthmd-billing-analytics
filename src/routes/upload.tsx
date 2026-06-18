@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileSpreadsheet, AlertTriangle } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/upload")({
@@ -29,6 +29,8 @@ export const Route = createFileRoute("/upload")({
   ),
 });
 
+type SkippedRow = { acct: string; dos: string; cpt: string; company: string; reason: string };
+
 type HistoryRow = {
   id: string;
   filename: string;
@@ -39,6 +41,8 @@ type HistoryRow = {
   rows_updated: number;
   rows_skipped: number;
   unknown_cpt_count: number;
+  skipped_rows: SkippedRow[] | null;
+  unknown_cpts: Record<string, number> | null;
 };
 
 type CompanyStats = {
@@ -47,6 +51,8 @@ type CompanyStats = {
   updated: number;
   skipped: number;
   unknownCpt: number;
+  skippedRows: SkippedRow[];
+  unknownCpts: Record<string, number>;
 };
 
 type Summary = {
@@ -88,7 +94,7 @@ function parseBool(v: any): boolean {
 }
 
 function emptyStats(): CompanyStats {
-  return { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0 };
+  return { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0, skippedRows: [], unknownCpts: {} };
 }
 
 function UploadPage() {
@@ -101,15 +107,17 @@ function UploadPage() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [skippedView, setSkippedView] = useState<{ title: string; rows: SkippedRow[] } | null>(null);
+  const [unknownView, setUnknownView] = useState<{ title: string; counts: Record<string, number> } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadHistory = useCallback(async () => {
     const { data } = await supabase
       .from("upload_history")
-      .select("id,filename,company,created_at,rows_processed,rows_inserted,rows_updated,rows_skipped,unknown_cpt_count")
+      .select("id,filename,company,created_at,rows_processed,rows_inserted,rows_updated,rows_skipped,unknown_cpt_count,skipped_rows,unknown_cpts" as any)
       .order("created_at", { ascending: false })
       .limit(100);
-    setHistory((data ?? []) as HistoryRow[]);
+    setHistory((data ?? []) as unknown as HistoryRow[]);
   }, []);
 
   useEffect(() => {
@@ -178,7 +186,10 @@ function UploadPage() {
           const ref = cptMap.get(cpt);
           let billing_type = ref?.billing_type ?? null;
           const service_category = ref?.service_category ?? null;
-          if (!ref) stats.unknownCpt++;
+          if (!ref) {
+            stats.unknownCpt++;
+            stats.unknownCpts[cpt] = (stats.unknownCpts[cpt] ?? 0) + 1;
+          }
 
           const ov = overrideMap.get(`${cpt}|${pri_ins}`);
           if (ov) billing_type = ov;
@@ -231,8 +242,10 @@ function UploadPage() {
                 .eq("id", existing.id);
               if (error) throw error;
               stats.updated++;
+              stats.skippedRows.push({ acct, dos, cpt, company, reason: "Duplicate - updated" });
             } else {
               stats.skipped++;
+              stats.skippedRows.push({ acct, dos, cpt, company, reason: "Duplicate - no new payment" });
             }
           }
         } catch (err: any) {
@@ -255,8 +268,15 @@ function UploadPage() {
           rows_skipped: perCompany[c].skipped,
           unknown_cpt_count: perCompany[c].unknownCpt,
           errors: errSlice,
+          skipped_rows: perCompany[c].skippedRows.slice(0, 5000),
+          unknown_cpts: perCompany[c].unknownCpts,
         }));
-        await supabase.from("upload_history").insert(historyRows);
+        await supabase.from("upload_history").insert(historyRows as any);
+      }
+
+      const totalUnknown = companies.reduce((s, c) => s + perCompany[c].unknownCpt, 0);
+      if (totalUnknown > 0) {
+        toast.warning(`${totalUnknown} unknown CPT codes found — click the Unknown CPT count to review and classify them.`);
       }
 
       setSummary({ perCompany, errors });
@@ -354,27 +374,49 @@ function UploadPage() {
             <TableBody>
               {history.length === 0 ? (
                 <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No uploads yet.</TableCell></TableRow>
-              ) : history.map((h) => (
-                <TableRow key={h.id}>
-                  <TableCell className="font-medium">{h.filename}</TableCell>
-                  <TableCell>{h.company}</TableCell>
-                  <TableCell>{new Date(h.created_at).toLocaleString()}</TableCell>
-                  <TableCell className="text-right tabular-nums">{h.rows_processed}</TableCell>
-                  <TableCell className="text-right tabular-nums">{h.rows_inserted}</TableCell>
-                  <TableCell className="text-right tabular-nums">{h.rows_updated}</TableCell>
-                  <TableCell className="text-right tabular-nums">{h.rows_skipped}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {h.unknown_cpt_count > 0 ? (
-                      <Badge variant="outline" className="border-amber-500 text-amber-700">{h.unknown_cpt_count}</Badge>
-                    ) : "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
+              ) : history.map((h) => {
+                const hasSkipped = h.rows_skipped > 0 && Array.isArray(h.skipped_rows) && h.skipped_rows.length > 0;
+                const hasUnknown = h.unknown_cpt_count > 0 && h.unknown_cpts && Object.keys(h.unknown_cpts).length > 0;
+                return (
+                  <TableRow key={h.id}>
+                    <TableCell className="font-medium">{h.filename}</TableCell>
+                    <TableCell>{h.company}</TableCell>
+                    <TableCell>{new Date(h.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-right tabular-nums">{h.rows_processed}</TableCell>
+                    <TableCell className="text-right tabular-nums">{h.rows_inserted}</TableCell>
+                    <TableCell className="text-right tabular-nums">{h.rows_updated}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {hasSkipped ? (
+                        <button
+                          className="text-primary hover:underline font-medium"
+                          onClick={() => setSkippedView({ title: `${h.filename} — ${h.company}`, rows: h.skipped_rows ?? [] })}
+                        >
+                          {h.rows_skipped}
+                        </button>
+                      ) : (
+                        h.rows_skipped
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {hasUnknown ? (
+                        <button
+                          onClick={() => setUnknownView({ title: `${h.filename} — ${h.company}`, counts: h.unknown_cpts ?? {} })}
+                        >
+                          <Badge variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-50 cursor-pointer">
+                            {h.unknown_cpt_count}
+                          </Badge>
+                        </button>
+                      ) : "—"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Card>
       </div>
 
+      {/* Upload summary modal */}
       <Dialog open={!!summary} onOpenChange={(o) => { if (!o) { setSummary(null); navigate({ to: "/" }); } }}>
         <DialogContent>
           <DialogHeader>
@@ -400,7 +442,7 @@ function UploadPage() {
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <div>
-                {totalUnknownCpt} rows had unknown CPT codes — review in the CPT Reference Manager.
+                {totalUnknownCpt} rows had unknown CPT codes — click the Unknown CPT count in Upload History to review and classify them.
               </div>
             </div>
           )}
@@ -417,7 +459,82 @@ function UploadPage() {
               View Dashboard
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
+      {/* Skipped rows detail */}
+      <Dialog open={!!skippedView} onOpenChange={(o) => { if (!o) setSkippedView(null); }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Skipped Rows</DialogTitle>
+            <DialogDescription>{skippedView?.title}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Acct</TableHead>
+                  <TableHead>DOS</TableHead>
+                  <TableHead>CPT</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(skippedView?.rows ?? []).map((r, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-mono text-xs">{r.acct}</TableCell>
+                    <TableCell>{r.dos}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.cpt}</TableCell>
+                    <TableCell>{r.company}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{r.reason}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unknown CPTs detail */}
+      <Dialog open={!!unknownView} onOpenChange={(o) => { if (!o) setUnknownView(null); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Unknown CPT Codes</DialogTitle>
+            <DialogDescription>{unknownView?.title}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>CPT Code</TableHead>
+                  <TableHead className="text-right">Times Appeared in File</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Object.entries(unknownView?.counts ?? {})
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([code, count]) => (
+                    <TableRow key={code}>
+                      <TableCell className="font-mono text-xs font-semibold">{code}</TableCell>
+                      <TableCell className="text-right tabular-nums">{count}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate({ to: "/admin/cpt", search: { addCpt: code } as any })}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add to CPT Reference
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
         </DialogContent>
       </Dialog>
     </>

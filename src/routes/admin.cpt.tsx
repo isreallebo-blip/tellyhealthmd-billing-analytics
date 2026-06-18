@@ -21,6 +21,9 @@ export const Route = createFileRoute("/admin/cpt")({
       { name: "description", content: "Manage CPT codes and insurance-specific billing overrides." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    addCpt: typeof s.addCpt === "string" ? s.addCpt : undefined,
+  }),
   component: () => (
     <AppShell adminOnly>
       <CptManager />
@@ -94,7 +97,7 @@ function CptManager() {
       <PageHeader
         title="CPT Reference"
         description="Maintain CPT codes, billing types, and insurance-specific overrides."
-        actions={<AddCptDialog onCreated={loadAll} />}
+        actions={<AddCptDialog onCreated={loadAll} initialCode={Route.useSearch().addCpt} />}
       />
 
 
@@ -182,13 +185,20 @@ function CptManager() {
   );
 }
 
-function AddCptDialog({ onCreated }: { onCreated: () => void }) {
+function AddCptDialog({ onCreated, initialCode }: { onCreated: () => void; initialCode?: string }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [desc, setDesc] = useState("");
   const [cat, setCat] = useState<string>("Visit");
   const [type, setType] = useState<string>("Primary");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (initialCode) {
+      setCode(initialCode);
+      setOpen(true);
+    }
+  }, [initialCode]);
 
   async function save() {
     if (!code.trim()) return toast.error("CPT code is required");

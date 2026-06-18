@@ -297,7 +297,9 @@ export type Database = {
           rows_processed: number
           rows_skipped: number
           rows_updated: number
+          skipped_rows: Json | null
           unknown_cpt_count: number
+          unknown_cpts: Json | null
           uploaded_by: string | null
         }
         Insert: {
@@ -310,7 +312,9 @@ export type Database = {
           rows_processed?: number
           rows_skipped?: number
           rows_updated?: number
+          skipped_rows?: Json | null
           unknown_cpt_count?: number
+          unknown_cpts?: Json | null
           uploaded_by?: string | null
         }
         Update: {
@@ -323,7 +327,9 @@ export type Database = {
           rows_processed?: number
           rows_skipped?: number
           rows_updated?: number
+          skipped_rows?: Json | null
           unknown_cpt_count?: number
+          unknown_cpts?: Json | null
           uploaded_by?: string | null
         }
         Relationships: [
