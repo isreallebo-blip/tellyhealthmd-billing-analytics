@@ -140,10 +140,29 @@ function Dashboard() {
 
   const kpis = useMemo(() => computeKpis(filtered, threshold), [filtered, threshold]);
 
+  const [tab, setTab] = useState("insights");
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Apply default company filter from settings
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("tellyhealth:default-companies");
+      if (saved) {
+        const parsed = JSON.parse(saved) as string[];
+        if (Array.isArray(parsed) && parsed.length) setCompanies(parsed);
+      }
+    } catch {}
+  }, []);
+
   return (
     <>
-      <PageHeader title="Analytics Dashboard" description="Filter, slice, and export billing performance." />
-      <div className="p-6 lg:p-8 space-y-6">
+      <PageHeader
+        title="Analytics Dashboard"
+        description="Filter, slice, and export billing performance."
+        breadcrumbs={[{ label: "Home" }]}
+      />
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
+
         {/* Sticky Filters */}
         <Card className="sticky top-0 z-20 shadow-sm">
           <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
