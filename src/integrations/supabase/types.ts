@@ -363,6 +363,65 @@ export type Database = {
           },
         ]
       }
+      upload_jobs: {
+        Row: {
+          company: string | null
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          filename: string
+          id: string
+          inserted: number
+          processed_rows: number
+          skipped: number
+          status: string
+          total_rows: number
+          unknown_cpt: number
+          updated: number
+          user_id: string
+        }
+        Insert: {
+          company?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          filename: string
+          id?: string
+          inserted?: number
+          processed_rows?: number
+          skipped?: number
+          status?: string
+          total_rows?: number
+          unknown_cpt?: number
+          updated?: number
+          user_id: string
+        }
+        Update: {
+          company?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          filename?: string
+          id?: string
+          inserted?: number
+          processed_rows?: number
+          skipped?: number
+          status?: string
+          total_rows?: number
+          unknown_cpt?: number
+          updated?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "upload_jobs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
