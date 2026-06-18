@@ -14,16 +14,259 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      ai_training_instructions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          instruction_text: string
+          is_active: boolean
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          instruction_text: string
+          is_active?: boolean
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          instruction_text?: string
+          is_active?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_training_instructions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      alert_settings: {
+        Row: {
+          id: string
+          threshold_days: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          threshold_days?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          threshold_days?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_settings_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      claims_raw: {
+        Row: {
+          acct: string | null
+          avg_days_to_pmt: number | null
+          company: string
+          cpt: string | null
+          days_to_pmt: number | null
+          denied_claim: boolean | null
+          dob: string | null
+          dos: string | null
+          id: string
+          is_primary_billable: boolean | null
+          mrn: string | null
+          pay_date: string | null
+          pri_ins: string | null
+          prov_code: string | null
+          prov_name: string | null
+          pt_name: string | null
+          revenue: number | null
+          service_category: string | null
+          uploaded_at: string
+          visit_type: string | null
+        }
+        Insert: {
+          acct?: string | null
+          avg_days_to_pmt?: number | null
+          company: string
+          cpt?: string | null
+          days_to_pmt?: number | null
+          denied_claim?: boolean | null
+          dob?: string | null
+          dos?: string | null
+          id?: string
+          is_primary_billable?: boolean | null
+          mrn?: string | null
+          pay_date?: string | null
+          pri_ins?: string | null
+          prov_code?: string | null
+          prov_name?: string | null
+          pt_name?: string | null
+          revenue?: number | null
+          service_category?: string | null
+          uploaded_at?: string
+          visit_type?: string | null
+        }
+        Update: {
+          acct?: string | null
+          avg_days_to_pmt?: number | null
+          company?: string
+          cpt?: string | null
+          days_to_pmt?: number | null
+          denied_claim?: boolean | null
+          dob?: string | null
+          dos?: string | null
+          id?: string
+          is_primary_billable?: boolean | null
+          mrn?: string | null
+          pay_date?: string | null
+          pri_ins?: string | null
+          prov_code?: string | null
+          prov_name?: string | null
+          pt_name?: string | null
+          revenue?: number | null
+          service_category?: string | null
+          uploaded_at?: string
+          visit_type?: string | null
+        }
+        Relationships: []
+      }
+      company_access: {
+        Row: {
+          company_name: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          company_name: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          company_name?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_access_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cpt_insurance_overrides: {
+        Row: {
+          billing_type_override: string | null
+          cpt_code: string
+          created_at: string
+          id: string
+          insurance_code: string
+          note: string | null
+        }
+        Insert: {
+          billing_type_override?: string | null
+          cpt_code: string
+          created_at?: string
+          id?: string
+          insurance_code: string
+          note?: string | null
+        }
+        Update: {
+          billing_type_override?: string | null
+          cpt_code?: string
+          created_at?: string
+          id?: string
+          insurance_code?: string
+          note?: string | null
+        }
+        Relationships: []
+      }
+      cpt_reference: {
+        Row: {
+          billing_type: string | null
+          cpt_code: string
+          created_at: string
+          description: string | null
+          service_category: string | null
+        }
+        Insert: {
+          billing_type?: string | null
+          cpt_code: string
+          created_at?: string
+          description?: string | null
+          service_category?: string | null
+        }
+        Update: {
+          billing_type?: string | null
+          cpt_code?: string
+          created_at?: string
+          description?: string | null
+          service_category?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name?: string | null
+          id: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      user_has_company_access: {
+        Args: { _company: string; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +393,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "viewer"],
+    },
   },
 } as const
