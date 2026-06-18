@@ -170,14 +170,14 @@ function Dashboard() {
     const handle = setTimeout(async () => {
       setStatsLoading(true);
       const { data, error } = await supabase.rpc("get_dashboard_stats", {
-        _companies: filterDeps.companies.length ? filterDeps.companies : null,
-        _providers: filterDeps.providers.length ? filterDeps.providers : null,
-        _insurances: filterDeps.insurances.length ? filterDeps.insurances : null,
-        _categories: filterDeps.categories.length ? filterDeps.categories : null,
-        _date_from: filterDeps.date_from,
-        _date_to: filterDeps.date_to,
+        _companies: filterDeps.companies.length ? filterDeps.companies : undefined,
+        _providers: filterDeps.providers.length ? filterDeps.providers : undefined,
+        _insurances: filterDeps.insurances.length ? filterDeps.insurances : undefined,
+        _categories: filterDeps.categories.length ? filterDeps.categories : undefined,
+        _date_from: filterDeps.date_from ?? undefined,
+        _date_to: filterDeps.date_to ?? undefined,
         _threshold: filterDeps.threshold,
-      });
+      } as any);
       if (!error && data) setStats(data as unknown as Stats);
       setStatsLoading(false);
     }, 300);
