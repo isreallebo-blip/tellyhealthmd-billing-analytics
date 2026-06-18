@@ -1,11 +1,12 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
-  Upload, Sparkles, Brain,
+  Upload, Sparkles, Brain, Loader2,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import type { Profile } from "@/hooks/use-auth";
+import { useActiveUploadCount } from "@/hooks/use-active-upload-count";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -28,6 +29,7 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
   const isAdmin = profile?.role === "admin";
+  const activeUploads = useActiveUploadCount();
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -58,7 +60,18 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <NavGroup label="Workspace">
             {buildMainItems(isAdmin).map((i) => (
-              <NavLink key={i.url} url={i.url} icon={i.icon} active={isActive(i.url)}>
+              <NavLink
+                key={i.url}
+                url={i.url}
+                icon={i.icon}
+                active={isActive(i.url)}
+                badge={i.url === "/upload" && activeUploads > 0 ? (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-medium text-amber-300">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {activeUploads} uploading
+                  </span>
+                ) : null}
+              >
                 {i.title}
               </NavLink>
             ))}
@@ -124,12 +137,13 @@ function NavGroup({ label, children }: { label: string; children: React.ReactNod
 }
 
 function NavLink({
-  url, icon: Icon, active, children,
+  url, icon: Icon, active, children, badge,
 }: {
   url: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   children: React.ReactNode;
+  badge?: React.ReactNode;
 }) {
   return (
     <Link
@@ -143,6 +157,7 @@ function NavLink({
     >
       <Icon className="h-4 w-4" />
       <span>{children}</span>
+      {badge}
     </Link>
   );
 }

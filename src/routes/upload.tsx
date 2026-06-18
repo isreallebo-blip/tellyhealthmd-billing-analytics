@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileSpreadsheet, AlertTriangle, Plus, X, Trash2 } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertTriangle, Plus, X, Trash2, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/upload")({
@@ -46,20 +46,19 @@ type HistoryRow = {
   unknown_cpts: Record<string, number> | null;
 };
 
-type CompanyStats = {
-  processed: number;
+type UploadJob = {
+  id: string;
+  filename: string;
+  status: "queued" | "processing" | "complete" | "error";
+  total_rows: number;
+  processed_rows: number;
   inserted: number;
   updated: number;
   skipped: number;
-  unknownCpt: number;
-  skippedRows: SkippedRow[];
-  unknownCpts: Record<string, number>;
-};
-
-type FileResult = {
-  filename: string;
-  perCompany: Record<string, CompanyStats>;
-  errors: { row: number; message: string }[];
+  unknown_cpt: number;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
 };
 
 const COLUMN_KEYS = [
@@ -68,50 +67,16 @@ const COLUMN_KEYS = [
   "Denied Claim", "Company", "MRN", "Acct",
 ] as const;
 
-function parseDate(v: any): string | null {
-  if (v == null || v === "") return null;
-  if (typeof v === "number") {
-    const d = XLSX.SSF.parse_date_code(v);
-    if (!d) return null;
-    const mm = String(d.m).padStart(2, "0");
-    const dd = String(d.d).padStart(2, "0");
-    return `${d.y}-${mm}-${dd}`;
-  }
-  const d = new Date(v);
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
-}
-
-function parseNum(v: any): number | null {
-  if (v == null || v === "") return null;
-  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
-  return isNaN(n) ? null : n;
-}
-
-function parseBool(v: any): boolean {
-  if (v == null || v === "") return false;
-  if (typeof v === "boolean") return v;
-  const s = String(v).trim().toLowerCase();
-  return s === "true" || s === "yes" || s === "y" || s === "1" || s === "denied";
-}
-
-function emptyStats(): CompanyStats {
-  return { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0, skippedRows: [], unknownCpts: {} };
-}
-
 function UploadPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const isAdmin = profile?.role === "admin";
 
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [queue, setQueue] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [currentFileIdx, setCurrentFileIdx] = useState(0);
-  const [currentFileName, setCurrentFileName] = useState("");
-  const [results, setResults] = useState<FileResult[] | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [skippedView, setSkippedView] = useState<{ title: string; rows: SkippedRow[] } | null>(null);
   const [unknownView, setUnknownView] = useState<{ title: string; counts: Record<string, number> } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HistoryRow | null>(null);
@@ -120,6 +85,7 @@ function UploadPage() {
   const [wipeConfirm, setWipeConfirm] = useState("");
   const [wiping, setWiping] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const notifiedJobs = useRef<Set<string>>(new Set());
 
   const loadHistory = useCallback(async () => {
     const { data } = await supabase
@@ -130,9 +96,54 @@ function UploadPage() {
     setHistory((data ?? []) as unknown as HistoryRow[]);
   }, []);
 
+  const loadJobs = useCallback(async () => {
+    if (!profile) return;
+    const { data } = await supabase
+      .from("upload_jobs" as any)
+      .select("*")
+      .eq("user_id", profile.id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setJobs((data ?? []) as unknown as UploadJob[]);
+  }, [profile]);
+
   useEffect(() => {
-    if (profile) loadHistory();
-  }, [profile, loadHistory]);
+    if (!profile) return;
+    loadHistory();
+    loadJobs();
+
+    const channel = supabase
+      .channel("upload-jobs-page")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "upload_jobs", filter: `user_id=eq.${profile.id}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as UploadJob;
+          setJobs((prev) => {
+            const map = new Map(prev.map((j) => [j.id, j]));
+            if (payload.eventType === "DELETE") map.delete(row.id);
+            else map.set(row.id, row);
+            return Array.from(map.values()).sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+          });
+          // Notify on completion + refresh history
+          if (payload.eventType === "UPDATE" && row.status === "complete" && !notifiedJobs.current.has(row.id)) {
+            notifiedJobs.current.add(row.id);
+            toast.success(`${row.filename} done — ${row.inserted} inserted, ${row.updated} updated, ${row.skipped} skipped`);
+            if (row.unknown_cpt > 0) {
+              toast.warning(`${row.unknown_cpt} unknown CPT codes — click the Unknown CPT count to review.`);
+            }
+            loadHistory();
+          }
+          if (payload.eventType === "UPDATE" && row.status === "error" && !notifiedJobs.current.has(row.id)) {
+            notifiedJobs.current.add(row.id);
+            toast.error(`${row.filename} failed: ${row.error_message ?? "unknown error"}`);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [profile, loadHistory, loadJobs]);
 
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;
@@ -143,223 +154,54 @@ function UploadPage() {
       const next = [...q];
       for (const f of arr) {
         const key = `${f.name}:${f.size}`;
-        if (!seen.has(key)) {
-          next.push(f);
-          seen.add(key);
-        }
+        if (!seen.has(key)) { next.push(f); seen.add(key); }
       }
       return next;
     });
   }
-
-  function removeFromQueue(idx: number) {
-    setQueue((q) => q.filter((_, i) => i !== idx));
-  }
-
+  function removeFromQueue(idx: number) { setQueue((q) => q.filter((_, i) => i !== idx)); }
   function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    addFiles(e.dataTransfer.files);
+    e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files);
   }
 
-  async function processOneFile(file: File): Promise<FileResult> {
+  async function submitFile(file: File): Promise<void> {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: false });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
 
-    const [{ data: cptRef }, { data: overrides }] = await Promise.all([
-      supabase.from("cpt_reference").select("cpt_code,service_category,billing_type"),
-      supabase.from("cpt_insurance_overrides").select("cpt_code,insurance_code,override_billing_type"),
-    ]);
-    const cptMap = new Map<string, { service_category: string | null; billing_type: string | null }>();
-    cptRef?.forEach((r: any) =>
-      cptMap.set(String(r.cpt_code).toUpperCase(), { service_category: r.service_category, billing_type: r.billing_type })
-    );
-    const overrideMap = new Map<string, string>();
-    overrides?.forEach((r: any) =>
-      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.override_billing_type)
-    );
-
-    const perCompany: Record<string, CompanyStats> = {};
-    const companyUploadId: Record<string, string> = {};
-    const errors: { row: number; message: string }[] = [];
-
-    async function ensureUploadRow(company: string): Promise<string | null> {
-      if (companyUploadId[company]) return companyUploadId[company];
-      const { data, error } = await supabase
-        .from("upload_history")
-        .insert({
-          filename: file.name,
-          company,
-          uploaded_by: profile!.id,
-          rows_processed: 0,
-          rows_inserted: 0,
-          rows_updated: 0,
-          rows_skipped: 0,
-          unknown_cpt_count: 0,
-        } as any)
-        .select("id")
-        .single();
-      if (error || !data) return null;
-      companyUploadId[company] = data.id;
-      return data.id;
+    const { data, error } = await supabase.functions.invoke("process-upload", {
+      body: { filename: file.name, rows },
+    });
+    if (error) throw new Error(error.message ?? "Failed to start upload");
+    toast.success(`${file.name} queued — processing ${rows.length.toLocaleString()} rows in the background.`);
+    if (data?.jobId) {
+      // Optimistically add to jobs so the card shows immediately
+      setJobs((prev) => {
+        if (prev.some((j) => j.id === data.jobId)) return prev;
+        return [{
+          id: data.jobId, filename: file.name, status: "processing",
+          total_rows: rows.length, processed_rows: 0,
+          inserted: 0, updated: 0, skipped: 0, unknown_cpt: 0,
+          error_message: null, created_at: new Date().toISOString(), completed_at: null,
+        }, ...prev];
+      });
     }
-
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const company = String(r["Company"] ?? "").trim();
-      if (!company) {
-        errors.push({ row: i + 2, message: "Missing Company value" });
-        setProgress(Math.round(((i + 1) / rows.length) * 100));
-        continue;
-      }
-      if (!perCompany[company]) perCompany[company] = emptyStats();
-      const stats = perCompany[company];
-      stats.processed++;
-      const uploadId = await ensureUploadRow(company);
-
-      try {
-        const cpt = String(r["CPT"] ?? "").trim().toUpperCase();
-        const pri_ins = String(r["Pri_Ins"] ?? "").trim().toUpperCase();
-        const acct = String(r["Acct"] ?? "").trim();
-        const dos = parseDate(r["DOS"]);
-        if (!acct || !dos || !cpt) {
-          errors.push({ row: i + 2, message: "Missing required Acct / DOS / CPT" });
-          continue;
-        }
-
-        const ref = cptMap.get(cpt);
-        let billing_type = ref?.billing_type ?? null;
-        const service_category = ref?.service_category ?? null;
-        if (!ref) {
-          stats.unknownCpt++;
-          stats.unknownCpts[cpt] = (stats.unknownCpts[cpt] ?? 0) + 1;
-        }
-
-        const ov = overrideMap.get(`${cpt}|${pri_ins}`);
-        if (ov) billing_type = ov;
-
-        const is_primary_billable = ref ? billing_type === "Primary" : true;
-
-        const revenue = parseNum(r["Revenue"]);
-        const days_to_pmt = parseNum(r["DaysToPmt"]);
-        const pay_date = parseDate(r["paydate"]);
-        const denied_claim = parseBool(r["Denied Claim"]);
-
-        const { data: existing } = await supabase
-          .from("claims_raw")
-          .select("id,revenue")
-          .eq("acct", acct).eq("dos", dos).eq("cpt", cpt).eq("company", company)
-          .maybeSingle();
-
-        const payload: any = {
-          company,
-          pt_name: r["PT Name"] ?? null,
-          dob: parseDate(r["DOB"]),
-          pri_ins,
-          prov_code: r["Prov"] ?? null,
-          prov_name: r["Prov Name"] ?? null,
-          dos,
-          cpt,
-          avg_days_to_pmt: parseNum(r["AvgDsToPmt"]),
-          days_to_pmt,
-          visit_type: r["Visit Type"] ?? null,
-          revenue,
-          pay_date,
-          denied_claim,
-          mrn: r["MRN"] ?? null,
-          acct,
-          service_category,
-          is_primary_billable,
-          upload_id: uploadId,
-        };
-
-        if (!existing) {
-          const { error } = await supabase.from("claims_raw").insert(payload);
-          if (error) throw error;
-          stats.inserted++;
-        } else {
-          const oldRev = existing.revenue;
-          const hasNewPmt = revenue != null && (oldRev == null || Number(oldRev) === 0);
-          if (hasNewPmt) {
-            const { error } = await supabase
-              .from("claims_raw")
-              .update({ revenue, pay_date, days_to_pmt, denied_claim, last_updated_upload_id: uploadId })
-              .eq("id", existing.id);
-            if (error) throw error;
-            stats.updated++;
-            stats.skippedRows.push({ acct, dos, cpt, company, reason: "Duplicate - updated" });
-          } else {
-            stats.skipped++;
-            stats.skippedRows.push({ acct, dos, cpt, company, reason: "Duplicate - no new payment" });
-          }
-        }
-      } catch (err: any) {
-        errors.push({ row: i + 2, message: err?.message ?? "Unknown error" });
-      }
-      setProgress(Math.round(((i + 1) / rows.length) * 100));
-    }
-
-    // Finalize each per-company upload_history row with final stats
-    const errSlice = errors.length ? errors.slice(0, 100) : null;
-    await Promise.all(
-      Object.keys(perCompany).map(async (c) => {
-        const id = companyUploadId[c];
-        if (!id) return;
-        const s = perCompany[c];
-        await supabase
-          .from("upload_history")
-          .update({
-            rows_processed: s.processed,
-            rows_inserted: s.inserted,
-            rows_updated: s.updated,
-            rows_skipped: s.skipped,
-            unknown_cpt_count: s.unknownCpt,
-            errors: errSlice,
-            skipped_rows: s.skippedRows.slice(0, 5000),
-            unknown_cpts: s.unknownCpts,
-          } as any)
-          .eq("id", id);
-      })
-    );
-
-    return { filename: file.name, perCompany, errors };
   }
 
-  async function processAll() {
+  async function submitAll() {
     if (queue.length === 0) return toast.error("Add at least one file first");
     if (!profile) return;
-    setProcessing(true);
-    setResults(null);
-    const collected: FileResult[] = [];
+    setSubmitting(true);
     try {
-      for (let i = 0; i < queue.length; i++) {
-        setCurrentFileIdx(i);
-        setCurrentFileName(queue[i].name);
-        setProgress(0);
-        try {
-          const r = await processOneFile(queue[i]);
-          collected.push(r);
-        } catch (err: any) {
-          toast.error(`${queue[i].name}: ${err?.message ?? "Failed"}`);
-          collected.push({ filename: queue[i].name, perCompany: {}, errors: [{ row: 0, message: err?.message ?? "Failed" }] });
-        }
+      for (const f of queue) {
+        try { await submitFile(f); }
+        catch (err: any) { toast.error(`${f.name}: ${err?.message ?? "Failed"}`); }
       }
-      const totalUnknown = collected.reduce(
-        (sum, f) => sum + Object.values(f.perCompany).reduce((s, c) => s + c.unknownCpt, 0),
-        0,
-      );
-      if (totalUnknown > 0) {
-        toast.warning(`${totalUnknown} unknown CPT codes found — click the Unknown CPT count to review and classify them.`);
-      }
-      setResults(collected);
       setQueue([]);
       if (inputRef.current) inputRef.current.value = "";
-      loadHistory();
-      try { localStorage.setItem("tellyhealth:ai-autorun", String(Date.now())); } catch {}
     } finally {
-      setProcessing(false);
+      setSubmitting(false);
     }
   }
 
@@ -367,12 +209,9 @@ function UploadPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      // Delete claims inserted by this upload that have not been later updated by a newer upload
       const { data: toDelete, error: selErr } = await supabase
-        .from("claims_raw")
-        .select("id")
-        .eq("upload_id", deleteTarget.id)
-        .is("last_updated_upload_id", null);
+        .from("claims_raw").select("id")
+        .eq("upload_id", deleteTarget.id).is("last_updated_upload_id", null);
       if (selErr) throw selErr;
       const ids = (toDelete ?? []).map((r: any) => r.id);
       if (ids.length > 0) {
@@ -400,9 +239,7 @@ function UploadPage() {
       const { error: hErr } = await supabase.from("upload_history").delete().not("id", "is", null);
       if (hErr) throw hErr;
       toast.success("All claims data deleted.");
-      setWipeOpen(false);
-      setWipeConfirm("");
-      loadHistory();
+      setWipeOpen(false); setWipeConfirm(""); loadHistory();
     } catch (err: any) {
       toast.error(err?.message ?? "Wipe failed");
     } finally {
@@ -410,11 +247,19 @@ function UploadPage() {
     }
   }
 
-  const canUpload = useMemo(() => queue.length > 0 && !processing, [queue, processing]);
+  const activeJobs = useMemo(
+    () => jobs.filter((j) => j.status === "processing" || j.status === "queued"),
+    [jobs],
+  );
+  const recentDoneJobs = useMemo(
+    () => jobs.filter((j) => j.status === "complete" || j.status === "error").slice(0, 5),
+    [jobs],
+  );
+  const canUpload = queue.length > 0 && !submitting;
 
   return (
     <>
-      <PageHeader title="Upload Claims" description="Drop one or more Excel exports to ingest and deduplicate billing rows." />
+      <PageHeader title="Upload Claims" description="Drop one or more Excel exports. Processing runs in the background — you can navigate away." />
       <div className="p-8 space-y-8">
         <Card className="p-6">
           <div className="grid md:grid-cols-[1fr_320px] gap-6">
@@ -433,11 +278,7 @@ function UploadPage() {
                 <div className="font-medium">Drag & drop one or more Excel files here</div>
                 <div className="text-sm text-muted-foreground mt-1">or click to browse — .xlsx, .xls</div>
                 <input
-                  ref={inputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  multiple
-                  className="hidden"
+                  ref={inputRef} type="file" accept=".xlsx,.xls" multiple className="hidden"
                   onChange={(e) => addFiles(e.target.files)}
                 />
               </div>
@@ -453,11 +294,8 @@ function UploadPage() {
                       <div className="flex-1 truncate">{f.name}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">{(f.size / 1024).toFixed(1)} KB</div>
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        disabled={processing}
-                        onClick={() => removeFromQueue(i)}
+                        variant="ghost" size="icon" className="h-7 w-7"
+                        disabled={submitting} onClick={() => removeFromQueue(i)}
                         aria-label={`Remove ${f.name}`}
                       >
                         <X className="h-4 w-4" />
@@ -470,21 +308,12 @@ function UploadPage() {
 
             <div className="space-y-4">
               <div className="text-sm text-muted-foreground">
-                Company is detected automatically from the <span className="font-medium text-foreground">Company</span> column in each file. Rows are grouped per company.
+                Company is detected automatically from the <span className="font-medium text-foreground">Company</span> column. Processing runs server-side — closing this tab won't stop it.
               </div>
 
-              {processing && (
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground">
-                    Processing file {currentFileIdx + 1} of {queue.length || currentFileIdx + 1}: {currentFileName}… {progress}%
-                  </div>
-                  <Progress value={progress} />
-                </div>
-              )}
-
-              <Button className="w-full" disabled={!canUpload} onClick={processAll}>
+              <Button className="w-full" disabled={!canUpload} onClick={submitAll}>
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
-                {processing ? "Processing…" : `Upload & Process All${queue.length ? ` (${queue.length})` : ""}`}
+                {submitting ? "Submitting…" : `Upload & Process All${queue.length ? ` (${queue.length})` : ""}`}
               </Button>
 
               <p className="text-xs text-muted-foreground">
@@ -493,6 +322,49 @@ function UploadPage() {
             </div>
           </div>
         </Card>
+
+        {(activeJobs.length > 0 || recentDoneJobs.length > 0) && (
+          <Card>
+            <div className="px-6 py-4 border-b">
+              <h2 className="font-semibold">Background Processing</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                These jobs run server-side. You can leave this page and the work continues.
+              </p>
+            </div>
+            <div className="divide-y">
+              {activeJobs.map((j) => {
+                const pct = j.total_rows > 0 ? Math.round((j.processed_rows / j.total_rows) * 100) : 0;
+                return (
+                  <div key={j.id} className="px-6 py-4 space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span className="font-medium truncate">{j.filename}</span>
+                      <span className="text-muted-foreground ml-auto tabular-nums">
+                        {j.processed_rows.toLocaleString()} / {j.total_rows.toLocaleString()} rows ({pct}%)
+                      </span>
+                    </div>
+                    <Progress value={pct} />
+                  </div>
+                );
+              })}
+              {recentDoneJobs.map((j) => (
+                <div key={j.id} className="px-6 py-3 flex items-center gap-2 text-sm">
+                  {j.status === "complete" ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-destructive" />
+                  )}
+                  <span className="font-medium truncate">{j.filename}</span>
+                  <span className="text-muted-foreground ml-auto tabular-nums">
+                    {j.status === "complete"
+                      ? `${j.inserted} inserted · ${j.updated} updated · ${j.skipped} skipped${j.unknown_cpt ? ` · ${j.unknown_cpt} unknown CPT` : ""}`
+                      : (j.error_message ?? "Failed")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         <Card>
           <div className="px-6 py-4 border-b flex items-center justify-between gap-4">
@@ -536,18 +408,12 @@ function UploadPage() {
                         <button
                           className="text-primary hover:underline font-medium"
                           onClick={() => setSkippedView({ title: `${h.filename} — ${h.company}`, rows: h.skipped_rows ?? [] })}
-                        >
-                          {h.rows_skipped}
-                        </button>
-                      ) : (
-                        h.rows_skipped
-                      )}
+                        >{h.rows_skipped}</button>
+                      ) : h.rows_skipped}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {hasUnknown ? (
-                        <button
-                          onClick={() => setUnknownView({ title: `${h.filename} — ${h.company}`, counts: h.unknown_cpts ?? {} })}
-                        >
+                        <button onClick={() => setUnknownView({ title: `${h.filename} — ${h.company}`, counts: h.unknown_cpts ?? {} })}>
                           <Badge variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-50 cursor-pointer">
                             {h.unknown_cpt_count}
                           </Badge>
@@ -556,14 +422,10 @@ function UploadPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
-                        variant="ghost"
-                        size="icon"
+                        variant="ghost" size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => setDeleteTarget(h)}
-                        aria-label="Delete upload"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        onClick={() => setDeleteTarget(h)} aria-label="Delete upload"
+                      ><Trash2 className="h-4 w-4" /></Button>
                     </TableCell>
                   </TableRow>
                 );
@@ -572,42 +434,6 @@ function UploadPage() {
           </Table>
         </Card>
       </div>
-
-      {/* Combined results modal */}
-      <Dialog open={!!results} onOpenChange={(o) => { if (!o) { setResults(null); navigate({ to: "/" }); } }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Upload Complete</DialogTitle>
-            <DialogDescription>Results grouped by file and company.</DialogDescription>
-          </DialogHeader>
-          {results && results.length > 0 && (
-            <div className="max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-3 text-sm space-y-1">
-              {results.flatMap((f) => {
-                const companies = Object.keys(f.perCompany).sort();
-                if (companies.length === 0) return [<div key={f.filename}><span className="font-medium">{f.filename}</span> — no rows processed</div>];
-                return companies.map((c) => {
-                  const s = f.perCompany[c];
-                  return (
-                    <div key={`${f.filename}|${c}`}>
-                      <span className="font-medium text-foreground">{f.filename} — {c}:</span>{" "}
-                      {s.inserted} inserted, {s.updated} updated, {s.skipped} skipped
-                    </div>
-                  );
-                });
-              })}
-            </div>
-          )}
-          {results && results.some((f) => Object.values(f.perCompany).some((c) => c.unknownCpt > 0)) && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
-              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-              <div>Some rows had unknown CPT codes — click the Unknown CPT count in Upload History to review and classify them.</div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => { setResults(null); navigate({ to: "/" }); }}>View Dashboard</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Skipped rows detail */}
       <Dialog open={!!skippedView} onOpenChange={(o) => { if (!o) setSkippedView(null); }}>
@@ -620,11 +446,8 @@ function UploadPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Acct</TableHead>
-                  <TableHead>DOS</TableHead>
-                  <TableHead>CPT</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Reason</TableHead>
+                  <TableHead>Acct</TableHead><TableHead>DOS</TableHead><TableHead>CPT</TableHead>
+                  <TableHead>Company</TableHead><TableHead>Reason</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -668,12 +491,9 @@ function UploadPage() {
                       <TableCell className="text-right tabular-nums">{count}</TableCell>
                       <TableCell className="text-right">
                         <Button
-                          size="sm"
-                          variant="outline"
+                          size="sm" variant="outline"
                           onClick={() => navigate({ to: "/admin/cpt", search: { addCpt: code } as any })}
-                        >
-                          <Plus className="h-3 w-3 mr-1" /> Add to CPT Reference
-                        </Button>
+                        ><Plus className="h-3 w-3 mr-1" /> Add to CPT Reference</Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -695,9 +515,7 @@ function UploadPage() {
           {deleteTarget && deleteTarget.rows_updated > 0 && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-              <div>
-                Note: Some records from this upload were later updated by a newer upload — only the original inserted records will be removed, updated records will be preserved.
-              </div>
+              <div>Note: Some records from this upload were later updated by a newer upload — only the original inserted records will be removed, updated records will be preserved.</div>
             </div>
           )}
           <DialogFooter>
@@ -718,12 +536,7 @@ function UploadPage() {
               This will delete ALL claims data from the database. This cannot be undone. Type <span className="font-mono font-semibold">DELETE</span> to confirm.
             </DialogDescription>
           </DialogHeader>
-          <Input
-            placeholder="Type DELETE to confirm"
-            value={wipeConfirm}
-            onChange={(e) => setWipeConfirm(e.target.value)}
-            disabled={wiping}
-          />
+          <Input placeholder="Type DELETE to confirm" value={wipeConfirm} onChange={(e) => setWipeConfirm(e.target.value)} disabled={wiping} />
           <DialogFooter>
             <Button variant="outline" onClick={() => { setWipeOpen(false); setWipeConfirm(""); }} disabled={wiping}>Cancel</Button>
             <Button variant="destructive" onClick={wipeAll} disabled={wiping || wipeConfirm !== "DELETE"}>
