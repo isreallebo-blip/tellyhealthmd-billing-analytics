@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as AdminCptRouteImport } from './routes/admin.cpt'
 
 const CptReferenceRoute = CptReferenceRouteImport.update({
   id: '/cpt-reference',
@@ -46,12 +47,18 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCptRoute = AdminCptRouteImport.update({
+  id: '/admin/cpt',
+  path: '/admin/cpt',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/admin/cpt': typeof AdminCptRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
 }
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/admin/cpt': typeof AdminCptRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
 }
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/admin/cpt': typeof AdminCptRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
 }
@@ -79,6 +88,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/admin/cpt'
     | '/admin/settings'
     | '/admin/users'
   fileRoutesByTo: FileRoutesByTo
@@ -87,6 +97,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/admin/cpt'
     | '/admin/settings'
     | '/admin/users'
   id:
@@ -95,6 +106,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/admin/cpt'
     | '/admin/settings'
     | '/admin/users'
   fileRoutesById: FileRoutesById
@@ -104,6 +116,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ClaimsRoute: typeof ClaimsRoute
   CptReferenceRoute: typeof CptReferenceRoute
+  AdminCptRoute: typeof AdminCptRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminUsersRoute: typeof AdminUsersRoute
 }
@@ -152,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/cpt': {
+      id: '/admin/cpt'
+      path: '/admin/cpt'
+      fullPath: '/admin/cpt'
+      preLoaderRoute: typeof AdminCptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -160,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ClaimsRoute: ClaimsRoute,
   CptReferenceRoute: CptReferenceRoute,
+  AdminCptRoute: AdminCptRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminUsersRoute: AdminUsersRoute,
 }

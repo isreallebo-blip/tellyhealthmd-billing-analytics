@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { Activity, LayoutDashboard, FileText, Users, Settings, BookOpen, LogOut } from "lucide-react";
+import { Activity, LayoutDashboard, FileText, Users, Settings, BookOpen, LogOut, Stethoscope } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Profile } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ const items = [
 
 const adminItems = [
   { title: "Users", url: "/admin/users", icon: Users },
+  { title: "CPT Manager", url: "/admin/cpt", icon: Stethoscope },
   { title: "Settings", url: "/admin/settings", icon: Settings },
 ];
 

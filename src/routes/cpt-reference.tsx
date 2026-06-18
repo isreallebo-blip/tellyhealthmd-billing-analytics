@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { BillingTypeBadge } from "@/components/billing-badges";
 
 export const Route = createFileRoute("/cpt-reference")({
   head: () => ({
@@ -47,7 +48,7 @@ function CptPage() {
                   <TableCell><code className="text-xs">{r.cpt_code}</code></TableCell>
                   <TableCell>{r.description}</TableCell>
                   <TableCell>{r.service_category}</TableCell>
-                  <TableCell>{r.billing_type}</TableCell>
+                  <TableCell><BillingTypeBadge type={r.billing_type} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>
