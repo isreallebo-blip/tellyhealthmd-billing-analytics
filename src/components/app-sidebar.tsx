@@ -1,25 +1,26 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
-  Stethoscope, Upload, Sparkles, Brain,
+  Upload, Sparkles, Brain,
 } from "lucide-react";
+
 import { supabase } from "@/integrations/supabase/client";
 import type { Profile } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-const mainItems = [
+const buildMainItems = (isAdmin: boolean) => [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Upload Data", url: "/upload", icon: Upload },
   { title: "AI Insights", url: "/ai-insights", icon: Sparkles },
   { title: "AI Training", url: "/ai-training", icon: Brain },
-  { title: "CPT Reference", url: "/cpt-reference", icon: BookOpen },
+  { title: "CPT Reference", url: isAdmin ? "/admin/cpt" : "/cpt-reference", icon: BookOpen },
 ];
 
 const adminItems = [
   { title: "User Management", url: "/admin/users", icon: Users },
-  { title: "CPT Manager", url: "/admin/cpt", icon: Stethoscope },
 ];
+
 
 const settingsItem = { title: "Settings", url: "/settings", icon: Settings };
 
@@ -56,12 +57,13 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <NavGroup label="Workspace">
-            {mainItems.map((i) => (
+            {buildMainItems(isAdmin).map((i) => (
               <NavLink key={i.url} url={i.url} icon={i.icon} active={isActive(i.url)}>
                 {i.title}
               </NavLink>
             ))}
           </NavGroup>
+
 
           {isAdmin && (
             <NavGroup label="Administration">

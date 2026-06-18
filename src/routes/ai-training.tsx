@@ -33,13 +33,12 @@ type Instruction = {
   created_by: string | null;
 };
 
-const PLACEHOLDER = `Examples:
+const EXAMPLES = [
+  "For PAMCD insurance, treat CPT 99203 as non-billable — we have no agreement with them for new patient visits.",
+  "Flag any insurance where unpaid rate exceeds 80% as Critical regardless of claim count.",
+  "Keystone (KEY) typically pays slowly — only alert if past 60 days, not 30.",
+];
 
-• For PAMCD insurance, treat CPT 99203 as non-billable — we have no agreement with them for new patient visits.
-
-• Flag any insurance where unpaid rate exceeds 80% as Critical regardless of claim count.
-
-• Keystone (KEY) typically pays slowly — only alert if past 60 days, not 30.`;
 
 function AiTrainingPage() {
   const { user } = useAuth();
@@ -94,13 +93,27 @@ function AiTrainingPage() {
       <div className="p-8 max-w-3xl space-y-6">
         <Card>
           <CardContent className="p-6 space-y-4">
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={PLACEHOLDER}
-              rows={8}
-              className="resize-none font-normal"
-            />
+            <div className="rounded-md border bg-muted/40 p-4 space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Examples
+              </div>
+              <ul className="text-sm space-y-1.5 list-disc pl-5 text-muted-foreground">
+                {EXAMPLES.map((ex, i) => <li key={i}>{ex}</li>)}
+              </ul>
+            </div>
+            <div>
+              <label htmlFor="instruction" className="text-sm font-medium block mb-1.5">
+                New instruction
+              </label>
+              <Textarea
+                id="instruction"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Type your custom instruction here…"
+                rows={6}
+                className="resize-y"
+              />
+            </div>
             <div className="flex justify-end">
               <Button onClick={add} disabled={saving || !text.trim()}>
                 <Sparkles className="h-4 w-4 mr-2" />
@@ -109,6 +122,7 @@ function AiTrainingPage() {
             </div>
           </CardContent>
         </Card>
+
 
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">

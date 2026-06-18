@@ -92,10 +92,11 @@ function CptManager() {
   return (
     <>
       <PageHeader
-        title="CPT Reference Manager"
+        title="CPT Reference"
         description="Maintain CPT codes, billing types, and insurance-specific overrides."
         actions={<AddCptDialog onCreated={loadAll} />}
       />
+
 
       <div className="p-8 space-y-8">
         <Card>
@@ -282,20 +283,21 @@ function OverridesSection({
           </p>
         </div>
         <Button onClick={() => { setEditing(null); setOpen(true); }}>
-          <Plus className="h-4 w-4 mr-2" /> Add override
+          <Plus className="h-4 w-4 mr-2" /> Add Override
         </Button>
       </CardHeader>
       <CardContent className="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-28">CPT</TableHead>
-              <TableHead className="w-40">Insurance code</TableHead>
-              <TableHead className="w-44">Override</TableHead>
+              <TableHead className="w-28">CPT Code</TableHead>
+              <TableHead className="w-40">Insurance Code</TableHead>
+              <TableHead className="w-44">Override Billing Type</TableHead>
               <TableHead>Note</TableHead>
               <TableHead className="w-36 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
             {overrides.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No overrides yet.</TableCell></TableRow>
