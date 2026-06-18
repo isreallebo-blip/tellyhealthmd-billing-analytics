@@ -21,6 +21,9 @@ export const Route = createFileRoute("/admin/cpt")({
       { name: "description", content: "Manage CPT codes and insurance-specific billing overrides." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    addCpt: typeof s.addCpt === "string" ? s.addCpt : undefined,
+  }),
   component: () => (
     <AppShell adminOnly>
       <CptManager />
