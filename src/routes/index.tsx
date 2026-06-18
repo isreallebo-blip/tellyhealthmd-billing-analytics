@@ -41,24 +41,37 @@ export const Route = createFileRoute("/")({
   ),
 });
 
-type Claim = {
-  id: string;
-  company: string;
-  pt_name: string | null;
-  pri_ins: string | null;
-  prov_name: string | null;
-  dos: string | null;
-  cpt: string | null;
-  revenue: number | null;
-  days_to_pmt: number | null;
-  pay_date: string | null;
-  denied_claim: boolean | null;
-  acct: string | null;
-  service_category: string | null;
-  is_primary_billable: boolean | null;
+type CptRef = { cpt_code: string; description: string | null; service_category: string | null; billing_type: string | null };
+
+type GroupRow = {
+  key: string;
+  total: number;
+  paid: number;
+  unpaid: number;
+  unpaid_pct: number;
+  revenue: number;
+  avg_days: number;
+  past_threshold: number;
 };
 
-type CptRef = { cpt_code: string; description: string | null; service_category: string | null; billing_type: string | null };
+type Stats = {
+  kpi: {
+    total_lines: number;
+    total_claims: number;
+    paid: number;
+    unpaid: number;
+    revenue: number;
+    avg_days: number;
+    past_threshold: number;
+  };
+  by_insurance: GroupRow[];
+  by_provider: GroupRow[];
+  by_cpt: GroupRow[];
+  by_month: GroupRow[];
+  by_service_category: GroupRow[];
+};
+
+type UnpaidRow = { company: string; pri_ins: string | null; prov_name: string | null; cpt: string | null };
 
 const fmtUSD = (n: number) => n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
@@ -72,9 +85,14 @@ function unpaidColor(pct: number) {
 
 function Dashboard() {
   const { profile } = useAuth();
-  const [claims, setClaims] = useState<Claim[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [unpaidRows, setUnpaidRows] = useState<UnpaidRow[] | null>(null);
   const [cptRef, setCptRef] = useState<Record<string, CptRef>>({});
+  const [filterOptions, setFilterOptions] = useState<{
+    companies: string[]; providers: string[]; insurances: string[]; categories: string[];
+  }>({ companies: [], providers: [], insurances: [], categories: [] });
   const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   // Filters
   const [companies, setCompanies] = useState<string[]>([]);
@@ -88,18 +106,38 @@ function Dashboard() {
   const [threshold, setThreshold] = useState<number>(30);
   const [customThreshold, setCustomThreshold] = useState<string>("");
 
+  const [tab, setTab] = useState("insights");
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const navigate = useNavigate();
+
+  // Initial load: distinct filter options, cpt reference, alert settings
   useEffect(() => {
     if (!profile) return;
     (async () => {
       setLoading(true);
-      const [{ data: rows }, { data: refs }, { data: setting }] = await Promise.all([
-        supabase.from("claims_raw").select(
-          "id,company,pt_name,pri_ins,prov_name,dos,cpt,revenue,days_to_pmt,pay_date,denied_claim,acct,service_category,is_primary_billable"
-        ).limit(50000),
+      const [{ data: distinctRows }, { data: refs }, { data: setting }] = await Promise.all([
+        supabase
+          .from("claims_raw")
+          .select("company,prov_name,pri_ins,service_category")
+          .limit(100000),
         supabase.from("cpt_reference").select("cpt_code,description,service_category,billing_type"),
         supabase.from("alert_settings").select("threshold_days").eq("user_id", profile.id).maybeSingle(),
       ]);
-      setClaims((rows ?? []) as Claim[]);
+      const setC = new Set<string>(), setP = new Set<string>(), setI = new Set<string>(), setCat = new Set<string>();
+      (distinctRows ?? []).forEach((r: any) => {
+        if (r.company) setC.add(r.company);
+        if (r.prov_name) setP.add(r.prov_name);
+        if (r.pri_ins) setI.add(r.pri_ins);
+        if (r.service_category) setCat.add(r.service_category);
+      });
+      ["Visit", "RPM", "CCM", "CGM", "Home Visit"].forEach((x) => setCat.add(x));
+      setFilterOptions({
+        companies: Array.from(setC).sort(),
+        providers: Array.from(setP).sort(),
+        insurances: Array.from(setI).sort(),
+        categories: Array.from(setCat).sort(),
+      });
+
       const map: Record<string, CptRef> = {};
       (refs ?? []).forEach((r: any) => { map[String(r.cpt_code).toUpperCase()] = r; });
       setCptRef(map);
@@ -107,6 +145,66 @@ function Dashboard() {
       setLoading(false);
     })();
   }, [profile]);
+
+  // Apply default company filter from settings (once)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("tellyhealth:default-companies");
+      if (saved) {
+        const parsed = JSON.parse(saved) as string[];
+        if (Array.isArray(parsed) && parsed.length) setCompanies(parsed);
+      }
+    } catch { /* noop */ }
+  }, []);
+
+  // Debounced stats fetch when filters/threshold change
+  const filterDeps = useMemo(() => ({
+    companies, providers, insurances, categories,
+    date_from: dateFrom ? format(dateFrom, "yyyy-MM-dd") : null,
+    date_to: dateTo ? format(dateTo, "yyyy-MM-dd") : null,
+    threshold,
+  }), [companies, providers, insurances, categories, dateFrom, dateTo, threshold]);
+
+  useEffect(() => {
+    if (!profile) return;
+    const handle = setTimeout(async () => {
+      setStatsLoading(true);
+      const { data, error } = await supabase.rpc("get_dashboard_stats", {
+        _companies: filterDeps.companies.length ? filterDeps.companies : null,
+        _providers: filterDeps.providers.length ? filterDeps.providers : null,
+        _insurances: filterDeps.insurances.length ? filterDeps.insurances : null,
+        _categories: filterDeps.categories.length ? filterDeps.categories : null,
+        _date_from: filterDeps.date_from,
+        _date_to: filterDeps.date_to,
+        _threshold: filterDeps.threshold,
+      });
+      if (!error && data) setStats(data as unknown as Stats);
+      setStatsLoading(false);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [profile, filterDeps]);
+
+  // Fetch unpaid rows for cross-analysis tab (debounced, only when tab is active)
+  useEffect(() => {
+    if (!profile || tab !== "cross") return;
+    const handle = setTimeout(async () => {
+      let q = supabase
+        .from("claims_raw")
+        .select("company,pri_ins,prov_name,cpt")
+        .eq("is_primary_billable", true)
+        .or("revenue.is.null,revenue.eq.0")
+        .limit(100000);
+      if (filterDeps.companies.length) q = q.in("company", filterDeps.companies);
+      if (filterDeps.providers.length) q = q.in("prov_name", filterDeps.providers);
+      if (filterDeps.insurances.length) q = q.in("pri_ins", filterDeps.insurances);
+      if (filterDeps.categories.length) q = q.in("service_category", filterDeps.categories);
+      if (filterDeps.date_from) q = q.gte("dos", filterDeps.date_from);
+      if (filterDeps.date_to) q = q.lte("dos", filterDeps.date_to);
+      const { data } = await q;
+      setUnpaidRows((data ?? []) as UnpaidRow[]);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [profile, tab, filterDeps]);
 
   async function saveThreshold(days: number) {
     setThreshold(days);
@@ -117,45 +215,16 @@ function Dashboard() {
     );
   }
 
-  // Filter option lists
-  const allCompanies = useMemo(() => uniq(claims.map((c) => c.company)), [claims]);
-  const allProviders = useMemo(() => uniq(claims.map((c) => c.prov_name)), [claims]);
-  const allInsurances = useMemo(() => uniq(claims.map((c) => c.pri_ins)), [claims]);
-  const allCategories = useMemo(
-    () => uniq([...claims.map((c) => c.service_category), "Visit", "RPM", "CCM", "CGM", "Home Visit"]),
-    [claims]
-  );
-
-  // Apply filters
-  const filtered = useMemo(() => {
-    return claims.filter((c) => {
-      if (companies.length && !companies.includes(c.company)) return false;
-      if (providers.length && (!c.prov_name || !providers.includes(c.prov_name))) return false;
-      if (insurances.length && (!c.pri_ins || !insurances.includes(c.pri_ins))) return false;
-      if (categories.length && (!c.service_category || !categories.includes(c.service_category))) return false;
-      if (dateFrom && (!c.dos || c.dos < format(dateFrom, "yyyy-MM-dd"))) return false;
-      if (dateTo && (!c.dos || c.dos > format(dateTo, "yyyy-MM-dd"))) return false;
-      return true;
-    });
-  }, [claims, companies, providers, insurances, categories, dateFrom, dateTo]);
-
-  const kpis = useMemo(() => computeKpis(filtered, threshold), [filtered, threshold]);
-
-  const [tab, setTab] = useState("insights");
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  const navigate = useNavigate();
-
-
-  // Apply default company filter from settings
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("tellyhealth:default-companies");
-      if (saved) {
-        const parsed = JSON.parse(saved) as string[];
-        if (Array.isArray(parsed) && parsed.length) setCompanies(parsed);
-      }
-    } catch {}
-  }, []);
+  const k = stats?.kpi;
+  const totalLines = k?.total_lines ?? 0;
+  const paid = k?.paid ?? 0;
+  const unpaid = k?.unpaid ?? 0;
+  const unpaidPct = (paid + unpaid) > 0 ? (unpaid / (paid + unpaid)) * 100 : 0;
+  const revenue = Number(k?.revenue ?? 0);
+  const avgRevPaid = paid ? revenue / paid : 0;
+  const pastThreshold = k?.past_threshold ?? 0;
+  const totalClaims = k?.total_claims ?? 0;
+  const avgDays = Number(k?.avg_days ?? 0);
 
   return (
     <>
@@ -165,8 +234,7 @@ function Dashboard() {
         breadcrumbs={[{ label: "Home" }]}
       />
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
-        {/* Alert banner */}
-        {!bannerDismissed && kpis.pastThreshold > 0 && (
+        {!bannerDismissed && pastThreshold > 0 && (
           <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3">
             <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
             <button
@@ -174,10 +242,9 @@ function Dashboard() {
               onClick={() => navigate({ to: "/ai-insights" })}
               className="text-left text-sm flex-1 hover:underline"
             >
-              ⚠ <span className="font-medium">{kpis.pastThreshold.toLocaleString()} claims</span>{" "}
+              ⚠ <span className="font-medium">{pastThreshold.toLocaleString()} claims</span>{" "}
               are past {threshold} days unpaid — review in AI Insights →
             </button>
-
             <button
               type="button"
               aria-label="Dismiss"
@@ -189,14 +256,13 @@ function Dashboard() {
           </div>
         )}
 
-
         {/* Sticky Filters */}
         <Card className="sticky top-0 z-20 shadow-sm">
           <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-            <MultiSelect label="Company" options={allCompanies} values={companies} onChange={setCompanies} placeholder="All companies" />
-            <MultiSelect label="Provider" options={allProviders} values={providers} onChange={setProviders} placeholder="All providers" />
-            <MultiSelect label="Insurance" options={allInsurances} values={insurances} onChange={setInsurances} placeholder="All insurances" />
-            <MultiSelect label="Service Category" options={allCategories} values={categories} onChange={setCategories} placeholder="All categories" />
+            <MultiSelect label="Company" options={filterOptions.companies} values={companies} onChange={setCompanies} placeholder="All companies" />
+            <MultiSelect label="Provider" options={filterOptions.providers} values={providers} onChange={setProviders} placeholder="All providers" />
+            <MultiSelect label="Insurance" options={filterOptions.insurances} values={insurances} onChange={setInsurances} placeholder="All insurances" />
+            <MultiSelect label="Service Category" options={filterOptions.categories} values={categories} onChange={setCategories} placeholder="All categories" />
             <DateRange label="DOS From" date={dateFrom} onChange={setDateFrom} />
             <DateRange label="DOS To" date={dateTo} onChange={setDateTo} />
             <div className="col-span-2 md:col-span-3 xl:col-span-6 flex flex-wrap items-center gap-3 pt-2 border-t">
@@ -231,7 +297,7 @@ function Dashboard() {
                 </Button>
               </div>
               <div className="ml-auto text-xs text-muted-foreground">
-                {loading ? "Loading…" : `${filtered.length.toLocaleString()} claim lines in view`}
+                {loading || statsLoading ? "Loading…" : `${totalLines.toLocaleString()} claim lines in view`}
               </div>
             </div>
           </CardContent>
@@ -239,28 +305,27 @@ function Dashboard() {
 
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          <Kpi label="Total Claims" value={kpis.totalClaims.toLocaleString()} icon={Layers} />
-          <Kpi label="Total Claim Lines" value={kpis.totalLines.toLocaleString()} icon={FileText} />
-          <Kpi label="Paid Claims" value={kpis.paid.toLocaleString()} icon={CheckCircle2} tone="positive" />
-          <Kpi label="Unpaid Claims" value={kpis.unpaid.toLocaleString()} icon={XCircle} tone="negative" />
+          <Kpi label="Total Claims" value={totalClaims.toLocaleString()} icon={Layers} />
+          <Kpi label="Total Claim Lines" value={totalLines.toLocaleString()} icon={FileText} />
+          <Kpi label="Paid Claims" value={paid.toLocaleString()} icon={CheckCircle2} tone="positive" />
+          <Kpi label="Unpaid Claims" value={unpaid.toLocaleString()} icon={XCircle} tone="negative" />
           <Kpi
             label="Unpaid Rate"
-            value={fmtPct(kpis.unpaidPct)}
+            value={fmtPct(unpaidPct)}
             icon={Percent}
-            valueClass={unpaidColor(kpis.unpaidPct)}
+            valueClass={unpaidColor(unpaidPct)}
           />
-          <Kpi label="Revenue Collected" value={fmtUSD(kpis.revenue)} icon={DollarSign} tone="positive" />
-          <Kpi label="Avg Revenue / Paid" value={fmtUSD(kpis.avgRevPaid)} icon={TrendingUp} />
-          <Kpi label="Avg Days to Payment" value={kpis.avgDays.toFixed(1)} icon={Clock} />
+          <Kpi label="Revenue Collected" value={fmtUSD(revenue)} icon={DollarSign} tone="positive" />
+          <Kpi label="Avg Revenue / Paid" value={fmtUSD(avgRevPaid)} icon={TrendingUp} />
+          <Kpi label="Avg Days to Payment" value={avgDays.toFixed(1)} icon={Clock} />
           <Kpi
             label={`Past ${threshold}d Threshold`}
-            value={kpis.pastThreshold.toLocaleString()}
+            value={pastThreshold.toLocaleString()}
             icon={AlertTriangle}
-            tone={kpis.pastThreshold > 0 ? "negative" : undefined}
+            tone={pastThreshold > 0 ? "negative" : undefined}
           />
         </div>
 
-        {/* Tabs */}
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="insights">AI Analysis</TabsTrigger>
@@ -273,46 +338,19 @@ function Dashboard() {
           </TabsList>
 
           <TabsContent value="insights"><AiInsightsPanel autoRunSignal={useAutoRunSignal()} /></TabsContent>
-          <TabsContent value="insurance"><GroupTab data={filtered} groupKey="pri_ins" groupLabel="Insurance" threshold={threshold} /></TabsContent>
-          <TabsContent value="provider"><GroupTab data={filtered} groupKey="prov_name" groupLabel="Provider" threshold={threshold} /></TabsContent>
-          <TabsContent value="cpt"><CptTab data={filtered} cptRef={cptRef} /></TabsContent>
-          <TabsContent value="month"><MonthTab data={filtered} /></TabsContent>
-          <TabsContent value="category"><GroupTab data={filtered} groupKey="service_category" groupLabel="Service Category" threshold={threshold} /></TabsContent>
-          <TabsContent value="cross"><CrossTab data={filtered} /></TabsContent>
+          <TabsContent value="insurance"><GroupTab rows={stats?.by_insurance ?? []} groupLabel="Insurance" /></TabsContent>
+          <TabsContent value="provider"><GroupTab rows={stats?.by_provider ?? []} groupLabel="Provider" /></TabsContent>
+          <TabsContent value="cpt"><CptTab rows={stats?.by_cpt ?? []} cptRef={cptRef} /></TabsContent>
+          <TabsContent value="month"><MonthTab rows={stats?.by_month ?? []} /></TabsContent>
+          <TabsContent value="category"><GroupTab rows={stats?.by_service_category ?? []} groupLabel="Service Category" /></TabsContent>
+          <TabsContent value="cross"><CrossTab rows={unpaidRows} /></TabsContent>
         </Tabs>
       </div>
     </>
   );
 }
 
-/* ────────────── helpers ────────────── */
-
-function uniq(arr: (string | null | undefined)[]) {
-  return Array.from(new Set(arr.filter((x): x is string => !!x && x.trim() !== ""))).sort();
-}
-
-function isPaid(c: Claim) { return c.revenue != null && Number(c.revenue) > 0; }
-function isUnpaidPrimary(c: Claim) { return !!c.is_primary_billable && (c.revenue == null || Number(c.revenue) === 0); }
-function daysSince(dos: string | null) {
-  if (!dos) return 0;
-  const d = new Date(dos).getTime();
-  return Math.floor((Date.now() - d) / 86400000);
-}
-
-function computeKpis(data: Claim[], threshold: number) {
-  const totalLines = data.length;
-  const claimKeys = new Set(data.map((c) => `${c.acct}|${c.dos}|${c.service_category ?? ""}`));
-  const totalClaims = claimKeys.size;
-  const paid = data.filter(isPaid).length;
-  const unpaid = data.filter(isUnpaidPrimary).length;
-  const unpaidPct = (paid + unpaid) > 0 ? (unpaid / (paid + unpaid)) * 100 : 0;
-  const revenue = data.reduce((s, c) => s + Number(c.revenue ?? 0), 0);
-  const avgRevPaid = paid ? revenue / paid : 0;
-  const days = data.filter(isPaid).map((c) => Number(c.days_to_pmt ?? 0)).filter((n) => n > 0);
-  const avgDays = days.length ? days.reduce((a, b) => a + b, 0) / days.length : 0;
-  const pastThreshold = data.filter((c) => isUnpaidPrimary(c) && daysSince(c.dos) > threshold).length;
-  return { totalLines, totalClaims, paid, unpaid, unpaidPct, revenue, avgRevPaid, avgDays, pastThreshold };
-}
+/* ────────────── building blocks ────────────── */
 
 function exportXlsx(rows: any[], filename: string) {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -320,8 +358,6 @@ function exportXlsx(rows: any[], filename: string) {
   XLSX.utils.book_append_sheet(wb, ws, "Export");
   XLSX.writeFile(wb, filename);
 }
-
-/* ────────────── building blocks ────────────── */
 
 function Kpi({
   label, value, icon: Icon, tone, valueClass,
@@ -372,39 +408,20 @@ function DateRange({ label, date, onChange }: { label: string; date: Date | unde
 
 /* ────────────── group tab (insurance / provider / category) ────────────── */
 
-type SortKey = "key" | "total" | "paid" | "unpaid" | "unpaidPct" | "revenue" | "avgDays" | "past";
+type SortKey = "key" | "total" | "paid" | "unpaid" | "unpaid_pct" | "revenue" | "avg_days" | "past_threshold";
 
-function GroupTab({
-  data, groupKey, groupLabel, threshold,
-}: { data: Claim[]; groupKey: keyof Claim; groupLabel: string; threshold: number }) {
+function GroupTab({ rows, groupLabel }: { rows: GroupRow[]; groupLabel: string }) {
   const [sort, setSort] = useState<{ k: SortKey; dir: "asc" | "desc" }>({ k: "unpaid", dir: "desc" });
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, Claim[]>();
-    for (const c of data) {
-      const k = (c[groupKey] as string | null) || "—";
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(c);
-    }
-    const rows = Array.from(map.entries()).map(([key, list]) => {
-      const total = list.length;
-      const paid = list.filter(isPaid).length;
-      const unpaid = list.filter(isUnpaidPrimary).length;
-      const denom = paid + unpaid;
-      const unpaidPct = denom ? (unpaid / denom) * 100 : 0;
-      const revenue = list.reduce((s, c) => s + Number(c.revenue ?? 0), 0);
-      const days = list.filter(isPaid).map((c) => Number(c.days_to_pmt ?? 0)).filter((n) => n > 0);
-      const avgDays = days.length ? days.reduce((a, b) => a + b, 0) / days.length : 0;
-      const past = list.filter((c) => isUnpaidPrimary(c) && daysSince(c.dos) > threshold).length;
-      return { key, total, paid, unpaid, unpaidPct, revenue, avgDays, past };
-    });
-    rows.sort((a, b) => {
-      const va = a[sort.k], vb = b[sort.k];
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const va = a[sort.k] as any, vb = b[sort.k] as any;
       const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return sort.dir === "asc" ? cmp : -cmp;
     });
-    return rows;
-  }, [data, groupKey, threshold, sort]);
+    return copy;
+  }, [rows, sort]);
 
   const toggleSort = (k: SortKey) =>
     setSort((s) => (s.k === k ? { k, dir: s.dir === "asc" ? "desc" : "asc" } : { k, dir: "desc" }));
@@ -413,7 +430,7 @@ function GroupTab({
     <Card className="mt-4">
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <h3 className="font-semibold text-sm">By {groupLabel}</h3>
-        <Button size="sm" variant="outline" onClick={() => exportXlsx(grouped, `by-${groupLabel.toLowerCase()}.xlsx`)}>
+        <Button size="sm" variant="outline" onClick={() => exportXlsx(sorted, `by-${groupLabel.toLowerCase()}.xlsx`)}>
           <Download className="h-4 w-4 mr-2" />Export
         </Button>
       </div>
@@ -425,26 +442,26 @@ function GroupTab({
               <Th onClick={() => toggleSort("total")} className="text-right">Total</Th>
               <Th onClick={() => toggleSort("paid")} className="text-right">Paid</Th>
               <Th onClick={() => toggleSort("unpaid")} className="text-right">Unpaid</Th>
-              <Th onClick={() => toggleSort("unpaidPct")} className="text-right">Unpaid %</Th>
+              <Th onClick={() => toggleSort("unpaid_pct")} className="text-right">Unpaid %</Th>
               <Th onClick={() => toggleSort("revenue")} className="text-right">Revenue</Th>
-              <Th onClick={() => toggleSort("avgDays")} className="text-right">Avg Days</Th>
-              <Th onClick={() => toggleSort("past")} className="text-right">Past Threshold</Th>
+              <Th onClick={() => toggleSort("avg_days")} className="text-right">Avg Days</Th>
+              <Th onClick={() => toggleSort("past_threshold")} className="text-right">Past Threshold</Th>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {grouped.length === 0 ? (
+            {sorted.length === 0 ? (
               <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No data.</TableCell></TableRow>
-            ) : grouped.map((r) => (
-              <TableRow key={r.key} className={r.unpaidPct >= 100 ? "bg-red-50" : ""}>
+            ) : sorted.map((r) => (
+              <TableRow key={r.key} className={r.unpaid_pct >= 100 ? "bg-red-50" : ""}>
                 <TableCell className="font-medium">{r.key}</TableCell>
                 <TableCell className="text-right tabular-nums">{r.total}</TableCell>
                 <TableCell className="text-right tabular-nums">{r.paid}</TableCell>
                 <TableCell className="text-right tabular-nums">{r.unpaid}</TableCell>
-                <TableCell className={cn("text-right tabular-nums font-medium", unpaidColor(r.unpaidPct))}>{fmtPct(r.unpaidPct)}</TableCell>
-                <TableCell className="text-right tabular-nums">{fmtUSD(r.revenue)}</TableCell>
-                <TableCell className="text-right tabular-nums">{r.avgDays ? r.avgDays.toFixed(1) : "—"}</TableCell>
+                <TableCell className={cn("text-right tabular-nums font-medium", unpaidColor(r.unpaid_pct))}>{fmtPct(r.unpaid_pct)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtUSD(Number(r.revenue))}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.avg_days ? Number(r.avg_days).toFixed(1) : "—"}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {r.past > 0 ? <Badge variant="destructive">{r.past}</Badge> : "—"}
+                  {r.past_threshold > 0 ? <Badge variant="destructive">{r.past_threshold}</Badge> : "—"}
                 </TableCell>
               </TableRow>
             ))}
@@ -465,36 +482,29 @@ function Th({ children, className, onClick }: { children: React.ReactNode; class
 
 /* ────────────── CPT tab ────────────── */
 
-function CptTab({ data, cptRef }: { data: Claim[]; cptRef: Record<string, CptRef> }) {
+function CptTab({ rows, cptRef }: { rows: GroupRow[]; cptRef: Record<string, CptRef> }) {
   const [primaryOnly, setPrimaryOnly] = useState(true);
 
-  const rows = useMemo(() => {
-    const map = new Map<string, Claim[]>();
-    for (const c of data) {
-      const k = (c.cpt || "—").toUpperCase();
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(c);
-    }
-    return Array.from(map.entries()).map(([cpt, list]) => {
+  const enriched = useMemo(() => {
+    return rows.map((r) => {
+      const cpt = r.key.toUpperCase();
       const ref = cptRef[cpt];
-      const total = list.length;
-      const paid = list.filter(isPaid).length;
-      const unpaid = list.filter(isUnpaidPrimary).length;
-      const denom = paid + unpaid;
-      const unpaidPct = denom ? (unpaid / denom) * 100 : 0;
-      const totalRev = list.reduce((s, c) => s + Number(c.revenue ?? 0), 0);
-      const avgRev = paid ? totalRev / paid : 0;
-      const lostRev = unpaid * avgRev;
+      const totalRev = Number(r.revenue);
+      const avgRev = r.paid ? totalRev / r.paid : 0;
+      const lostRev = r.unpaid * avgRev;
       return {
         cpt,
         description: ref?.description ?? "—",
-        service_category: ref?.service_category ?? list[0]?.service_category ?? "—",
+        service_category: ref?.service_category ?? "—",
         billing_type: ref?.billing_type ?? "Unknown",
-        total, paid, unpaid, unpaidPct, avgRev, lostRev,
+        total: r.total, paid: r.paid, unpaid: r.unpaid,
+        unpaidPct: r.unpaid_pct,
+        avgRev, lostRev,
       };
-    }).filter((r) => !primaryOnly || r.billing_type === "Primary")
+    })
+      .filter((r) => !primaryOnly || r.billing_type === "Primary")
       .sort((a, b) => b.lostRev - a.lostRev);
-  }, [data, cptRef, primaryOnly]);
+  }, [rows, cptRef, primaryOnly]);
 
   return (
     <Card className="mt-4">
@@ -506,7 +516,7 @@ function CptTab({ data, cptRef }: { data: Claim[]; cptRef: Record<string, CptRef
             <Label htmlFor="primary-only" className="text-xs">Primary billable only</Label>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={() => exportXlsx(rows, "by-cpt.xlsx")}>
+        <Button size="sm" variant="outline" onClick={() => exportXlsx(enriched, "by-cpt.xlsx")}>
           <Download className="h-4 w-4 mr-2" />Export
         </Button>
       </div>
@@ -527,9 +537,9 @@ function CptTab({ data, cptRef }: { data: Claim[]; cptRef: Record<string, CptRef
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length === 0 ? (
+            {enriched.length === 0 ? (
               <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No data.</TableCell></TableRow>
-            ) : rows.map((r) => (
+            ) : enriched.map((r) => (
               <TableRow key={r.cpt}>
                 <TableCell className="font-mono text-xs">{r.cpt}</TableCell>
                 <TableCell className="max-w-[280px] truncate">{r.description}</TableCell>
@@ -552,40 +562,30 @@ function CptTab({ data, cptRef }: { data: Claim[]; cptRef: Record<string, CptRef
 
 /* ────────────── Month tab ────────────── */
 
-function MonthTab({ data }: { data: Claim[] }) {
-  const rows = useMemo(() => {
-    const map = new Map<string, Claim[]>();
-    for (const c of data) {
-      if (!c.dos) continue;
-      const m = c.dos.slice(0, 7);
-      if (!map.has(m)) map.set(m, []);
-      map.get(m)!.push(c);
-    }
-    return Array.from(map.entries()).map(([month, list]) => {
-      const total = list.length;
-      const paid = list.filter(isPaid).length;
-      const unpaid = list.filter(isUnpaidPrimary).length;
-      const denom = paid + unpaid;
-      const unpaidPct = denom ? (unpaid / denom) * 100 : 0;
-      const revenue = list.reduce((s, c) => s + Number(c.revenue ?? 0), 0);
-      const avgPaidRev = paid ? revenue / paid : 0;
-      const unpaidEst = unpaid * avgPaidRev;
-      return { month, total, paid, unpaid, revenue, unpaidPct, unpaidEst };
-    }).sort((a, b) => a.month.localeCompare(b.month));
-  }, [data]);
+function MonthTab({ rows }: { rows: GroupRow[] }) {
+  const data = useMemo(() => {
+    return [...rows]
+      .map((r) => {
+        const revenue = Number(r.revenue);
+        const avgPaidRev = r.paid ? revenue / r.paid : 0;
+        const unpaidEst = r.unpaid * avgPaidRev;
+        return { month: r.key, total: r.total, paid: r.paid, unpaid: r.unpaid, revenue, unpaidPct: r.unpaid_pct, unpaidEst };
+      })
+      .sort((a, b) => a.month.localeCompare(b.month));
+  }, [rows]);
 
   return (
     <Card className="mt-4">
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <h3 className="font-semibold text-sm">By Month</h3>
-        <Button size="sm" variant="outline" onClick={() => exportXlsx(rows, "by-month.xlsx")}>
+        <Button size="sm" variant="outline" onClick={() => exportXlsx(data, "by-month.xlsx")}>
           <Download className="h-4 w-4 mr-2" />Export
         </Button>
       </div>
       <div className="p-4">
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows}>
+            <BarChart data={data}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="month" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${Math.round(v / 1000)}k`} />
@@ -610,9 +610,9 @@ function MonthTab({ data }: { data: Claim[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length === 0 ? (
+            {data.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No data.</TableCell></TableRow>
-            ) : rows.map((r) => (
+            ) : data.map((r) => (
               <TableRow key={r.month}>
                 <TableCell className="font-medium">{r.month}</TableCell>
                 <TableCell className="text-right tabular-nums">{r.total}</TableCell>
@@ -631,21 +631,19 @@ function MonthTab({ data }: { data: Claim[] }) {
 
 /* ────────────── Cross Analysis tab ────────────── */
 
-function CrossTab({ data }: { data: Claim[] }) {
+function CrossTab({ rows }: { rows: UnpaidRow[] | null }) {
   const [mode, setMode] = useState<"prov" | "cpt">("prov");
 
   const heatmap = useMemo(() => {
-    const unpaidRows = data.filter(isUnpaidPrimary);
-    const rowKey = (c: Claim) => (c.pri_ins || "—");
-    const colKey = (c: Claim) => mode === "prov" ? (c.prov_name || "—") : (c.cpt || "—");
+    const unpaidRows = rows ?? [];
+    const rowKey = (c: UnpaidRow) => (c.pri_ins || "—");
+    const colKey = (c: UnpaidRow) => mode === "prov" ? (c.prov_name || "—") : (c.cpt || "—");
 
-    // For CPT mode, restrict to top 15 insurers by unpaid
     const rowCounts = new Map<string, number>();
     unpaidRows.forEach((c) => rowCounts.set(rowKey(c), (rowCounts.get(rowKey(c)) ?? 0) + 1));
     const rowsAll = Array.from(rowCounts.entries()).sort((a, b) => b[1] - a[1]);
 
     if (mode === "cpt") {
-      // rows = CPT, cols = top 15 insurers
       const topIns = rowsAll.slice(0, 15).map(([k]) => k);
       const cptCounts = new Map<string, Map<string, number>>();
       unpaidRows.forEach((c) => {
@@ -667,7 +665,6 @@ function CrossTab({ data }: { data: Claim[] }) {
       return { rows: cptList, cols: topIns, cells, max, rowLabel: "CPT", colLabel: "Insurance" };
     }
 
-    // prov mode: rows = insurers, cols = providers
     const insurers = rowsAll.slice(0, 30).map(([k]) => k);
     const provSet = new Set<string>();
     unpaidRows.forEach((c) => { if (insurers.includes(c.pri_ins || "—")) provSet.add(c.prov_name || "—"); });
@@ -677,15 +674,15 @@ function CrossTab({ data }: { data: Claim[] }) {
     );
     const max = Math.max(1, ...cells.flat());
     return { rows: insurers, cols: provs, cells, max, rowLabel: "Insurance", colLabel: "Provider" };
-  }, [data, mode]);
+  }, [rows, mode]);
 
   function exportHeat() {
-    const rows = heatmap.rows.map((r, i) => {
+    const out = heatmap.rows.map((r, i) => {
       const o: any = { [heatmap.rowLabel]: r };
       heatmap.cols.forEach((c, j) => { o[c] = heatmap.cells[i][j]; });
       return o;
     });
-    exportXlsx(rows, `heatmap-${mode}.xlsx`);
+    exportXlsx(out, `heatmap-${mode}.xlsx`);
   }
 
   return (
@@ -705,7 +702,9 @@ function CrossTab({ data }: { data: Claim[] }) {
         </Button>
       </div>
       <div className="p-4 overflow-auto max-h-[640px]">
-        {heatmap.rows.length === 0 ? (
+        {rows === null ? (
+          <div className="text-center text-muted-foreground py-10">Loading…</div>
+        ) : heatmap.rows.length === 0 ? (
           <div className="text-center text-muted-foreground py-10">No unpaid data to compare.</div>
         ) : (
           <table className="text-xs border-collapse">
@@ -771,5 +770,5 @@ function useAutoRunSignal() {
 }
 
 export function triggerAiAutoRun() {
-  try { localStorage.setItem(AUTO_RUN_KEY, String(Date.now())); } catch {}
+  try { localStorage.setItem(AUTO_RUN_KEY, String(Date.now())); } catch { /* noop */ }
 }
