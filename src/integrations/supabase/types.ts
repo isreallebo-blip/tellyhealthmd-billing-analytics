@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_insights_runs: {
+        Row: {
+          generated_at: string
+          id: string
+          insights: Json
+          model: string | null
+          stats_summary: Json | null
+          user_id: string
+        }
+        Insert: {
+          generated_at?: string
+          id?: string
+          insights: Json
+          model?: string | null
+          stats_summary?: Json | null
+          user_id: string
+        }
+        Update: {
+          generated_at?: string
+          id?: string
+          insights?: Json
+          model?: string | null
+          stats_summary?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_insights_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_training_instructions: {
         Row: {
           created_at: string
