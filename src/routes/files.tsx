@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileSpreadsheet, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/files")({
   head: () => ({
