@@ -124,8 +124,15 @@ function FilesPage() {
                 <TableRow key={f.id} className="hover:bg-muted/40">
                   <TableCell>
                     <Link to="/files/$id" params={{ id: f.id }} className="flex items-center gap-2 font-medium hover:text-primary">
-                      <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+                      {f.kind === "unstructured"
+                        ? <FileText className="h-4 w-4 text-violet-500" />
+                        : <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />}
                       <span className="truncate max-w-[280px]">{f.filename}</span>
+                      {f.kind === "unstructured" && (
+                        <Badge variant="secondary" className="text-[10px] gap-1 ml-1">
+                          <Sparkles className="h-3 w-3" /> AI
+                        </Badge>
+                      )}
                     </Link>
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>
