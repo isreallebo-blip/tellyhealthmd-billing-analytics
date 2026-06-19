@@ -219,7 +219,8 @@ function Dashboard() {
     const handle = setTimeout(async () => {
       let q = supabase
         .from("claims_raw")
-        .select("company,pri_ins,prov_name,cpt")
+        .select("company,pri_ins,prov_name,cpt,source_files!inner(status)")
+        .eq("source_files.status", "approved")
         .eq("is_primary_billable", true)
         .or("revenue.is.null,revenue.eq.0")
         .limit(100000);
