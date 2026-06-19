@@ -206,6 +206,24 @@ function FilesPage() {
                       <Button variant="ghost" size="sm" asChild>
                         <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Download original file"
+                        disabled={busy === f.id + ":dl"}
+                        onClick={() => downloadOriginal(f)}
+                      >
+                        {busy === f.id + ":dl" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title={f.status === "approved" ? "Export reviewed data (CSV)" : "Export current parsed data (CSV)"}
+                        disabled={busy === f.id + ":ex" || f.row_count === 0}
+                        onClick={() => exportReviewed(f)}
+                      >
+                        {busy === f.id + ":ex" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                      </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
