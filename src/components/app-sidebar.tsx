@@ -21,6 +21,7 @@ const buildMainItems = (isAdmin: boolean) => [
 
 const adminItems = [
   { title: "User Management", url: "/admin/users", icon: Users },
+  { title: "Field Registry", url: "/admin/fields", icon: Tags },
 ];
 
 
