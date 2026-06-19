@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as FilesRouteImport } from './routes/files'
+import { Route as ExportsRouteImport } from './routes/exports'
 import { Route as CptReferenceRouteImport } from './routes/cpt-reference'
 import { Route as ClaimsRouteImport } from './routes/claims'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -20,6 +21,7 @@ import { Route as AiInsightsRouteImport } from './routes/ai-insights'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FilesIdRouteImport } from './routes/files.$id'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminFieldsRouteImport } from './routes/admin.fields'
 import { Route as AdminCptRouteImport } from './routes/admin.cpt'
@@ -37,6 +39,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const FilesRoute = FilesRouteImport.update({
   id: '/files',
   path: '/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExportsRoute = ExportsRouteImport.update({
+  id: '/exports',
+  path: '/exports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CptReferenceRoute = CptReferenceRouteImport.update({
@@ -79,6 +86,11 @@ const AdminUsersRoute = AdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminTemplatesRoute = AdminTemplatesRouteImport.update({
+  id: '/admin/templates',
+  path: '/admin/templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
   id: '/admin/settings',
   path: '/admin/settings',
@@ -102,12 +114,14 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
 }
@@ -118,12 +132,14 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
 }
@@ -135,12 +151,14 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
+  '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
 }
@@ -153,12 +171,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/exports'
     | '/files'
     | '/settings'
     | '/upload'
     | '/admin/cpt'
     | '/admin/fields'
     | '/admin/settings'
+    | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -169,12 +189,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/exports'
     | '/files'
     | '/settings'
     | '/upload'
     | '/admin/cpt'
     | '/admin/fields'
     | '/admin/settings'
+    | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
   id:
@@ -185,12 +207,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/claims'
     | '/cpt-reference'
+    | '/exports'
     | '/files'
     | '/settings'
     | '/upload'
     | '/admin/cpt'
     | '/admin/fields'
     | '/admin/settings'
+    | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
   fileRoutesById: FileRoutesById
@@ -202,12 +226,14 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ClaimsRoute: typeof ClaimsRoute
   CptReferenceRoute: typeof CptReferenceRoute
+  ExportsRoute: typeof ExportsRoute
   FilesRoute: typeof FilesRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   UploadRoute: typeof UploadRoute
   AdminCptRoute: typeof AdminCptRoute
   AdminFieldsRoute: typeof AdminFieldsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminTemplatesRoute: typeof AdminTemplatesRoute
   AdminUsersRoute: typeof AdminUsersRoute
 }
 
@@ -232,6 +258,13 @@ declare module '@tanstack/react-router' {
       path: '/files'
       fullPath: '/files'
       preLoaderRoute: typeof FilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/exports': {
+      id: '/exports'
+      path: '/exports'
+      fullPath: '/exports'
+      preLoaderRoute: typeof ExportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cpt-reference': {
@@ -290,6 +323,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/templates': {
+      id: '/admin/templates'
+      path: '/admin/templates'
+      fullPath: '/admin/templates'
+      preLoaderRoute: typeof AdminTemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/settings': {
       id: '/admin/settings'
       path: '/admin/settings'
@@ -331,12 +371,14 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ClaimsRoute: ClaimsRoute,
   CptReferenceRoute: CptReferenceRoute,
+  ExportsRoute: ExportsRoute,
   FilesRoute: FilesRouteWithChildren,
   SettingsRoute: SettingsRoute,
   UploadRoute: UploadRoute,
   AdminCptRoute: AdminCptRoute,
   AdminFieldsRoute: AdminFieldsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
+  AdminTemplatesRoute: AdminTemplatesRoute,
   AdminUsersRoute: AdminUsersRoute,
 }
 export const routeTree = rootRouteImport

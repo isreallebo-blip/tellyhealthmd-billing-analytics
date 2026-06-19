@@ -123,7 +123,7 @@ function ExportsPage() {
       toast.error("Unsupported file payload");
       return;
     }
-    const blob = new Blob([bytes], { type: "text/csv" });
+    const blob = new Blob([bytes as BlobPart], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = (data as any).filename ?? `export-${j.id}.csv`;
