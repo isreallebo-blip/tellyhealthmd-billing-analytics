@@ -632,10 +632,21 @@ Deno.serve(async (req) => {
     }
 
     if (upload_mode === "append_structured") {
-      const { data: allowed } = await userClient.from("source_files").select("id,column_mapping").eq("id", source_file_id).maybeSingle();
+      const { data: allowed } = await userClient.from("source_files").select("id,column_mapping,status").eq("id", source_file_id).maybeSingle();
       if (!allowed) return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (["needs_review", "approved"].includes(String(allowed.status))) {
+        const { count } = await db.from("parsed_rows").select("id", { count: "exact", head: true }).eq("source_file_id", source_file_id);
+        if (typeof count === "number" && count === Number(total_rows ?? count)) {
+          return new Response(JSON.stringify({ source_file_id, already_complete: true }), {
+            status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
       await insertRowsChunk(db, source_file_id!, rows ?? [], (defs ?? []) as FieldDef[], Number(start_index ?? 0), allowed.column_mapping ?? {});
-      await db.from("source_files").update({ row_count: total_rows ?? rows?.length ?? 0, status: "parsing", error: null }).eq("id", source_file_id);
+      await db.from("source_files")
+        .update({ row_count: total_rows ?? rows?.length ?? 0, status: "parsing", error: null })
+        .eq("id", source_file_id)
+        .not("status", "in", "(needs_review,approved)");
       if (is_last_chunk) {
         const finalize = finalizeStructuredParse(db, source_file_id!, total_rows ?? rows?.length ?? 0);
         const er = (globalThis as any).EdgeRuntime;
