@@ -67,7 +67,7 @@ type SourceFile = {
   kind: "structured" | "unstructured";
 };
 
-function StatusBadge({ status, percent }: { status: SourceFile["status"]; percent?: number | null }) {
+function StatusBadge({ status, percent, phase }: { status: SourceFile["status"]; percent?: number | null; phase?: "uploading" | "parsing" | null }) {
   const map: Record<SourceFile["status"], { label: string; cls: string; icon: any }> = {
     queued:       { label: "Queued",       cls: "bg-muted text-muted-foreground", icon: Clock },
     parsing:      { label: "Parsing",      cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
@@ -75,13 +75,23 @@ function StatusBadge({ status, percent }: { status: SourceFile["status"]; percen
     approved:     { label: "Approved",     cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300", icon: CheckCircle2 },
     failed:       { label: "Failed",       cls: "bg-destructive/15 text-destructive", icon: AlertCircle },
   };
-  const { label, cls, icon: Icon } = map[status];
-  const showPct = status === "parsing" && typeof percent === "number" && isFinite(percent);
+  const entry = map[status];
+  // When the upload manager is actively uploading this file, override the
+  // label so the user can see it's still streaming bytes (not yet parsing).
+  const effective = phase === "uploading"
+    ? { label: "Uploading", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-300", icon: Loader2 }
+    : entry;
+  const spinning = phase === "uploading" || status === "parsing" || status === "queued";
+  const showPct = (phase === "uploading" || status === "parsing") && typeof percent === "number" && isFinite(percent);
+  const pct = showPct ? Math.min(99, Math.max(0, Math.round(percent!))) : null;
   return (
-    <Badge variant="secondary" className={`${cls} gap-1 font-normal tabular-nums`}>
-      <Icon className={`h-3 w-3 ${status === "parsing" ? "animate-spin" : ""}`} />
-      {label}{showPct ? ` ${Math.min(99, Math.max(0, Math.round(percent!)))}%` : ""}
-    </Badge>
+    <div className="flex flex-col gap-1 min-w-[140px]">
+      <Badge variant="secondary" className={`${effective.cls} gap-1 font-normal tabular-nums w-fit`}>
+        <effective.icon className={`h-3 w-3 ${spinning ? "animate-spin" : ""}`} />
+        {effective.label}{pct !== null ? ` ${pct}%` : ""}
+      </Badge>
+      {pct !== null && <Progress value={pct} className="h-1.5" />}
+    </div>
   );
 }
 
