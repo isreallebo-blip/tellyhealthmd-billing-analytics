@@ -108,7 +108,29 @@ function Dashboard() {
 
   const [tab, setTab] = useState("insights");
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
   const navigate = useNavigate();
+
+  // Realtime: refresh stats when claims_raw or source_files change (e.g. after publish)
+  useEffect(() => {
+    if (!profile) return;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => setRefreshTick((t) => t + 1), 800);
+    };
+    const channel = supabase
+      .channel("dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "claims_raw" }, bump)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "source_files" }, (payload: any) => {
+        if (payload?.new?.status === "approved") bump();
+      })
+      .subscribe();
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      supabase.removeChannel(channel);
+    };
+  }, [profile]);
 
   // Initial load: distinct filter options, cpt reference, alert settings
   useEffect(() => {
@@ -182,7 +204,7 @@ function Dashboard() {
       setStatsLoading(false);
     }, 300);
     return () => clearTimeout(handle);
-  }, [profile, filterDeps]);
+  }, [profile, filterDeps, refreshTick]);
 
   // Fetch unpaid rows for cross-analysis tab (debounced, only when tab is active)
   useEffect(() => {
@@ -204,7 +226,7 @@ function Dashboard() {
       setUnpaidRows((data ?? []) as UnpaidRow[]);
     }, 300);
     return () => clearTimeout(handle);
-  }, [profile, tab, filterDeps]);
+  }, [profile, tab, filterDeps, refreshTick]);
 
   async function saveThreshold(days: number) {
     setThreshold(days);
