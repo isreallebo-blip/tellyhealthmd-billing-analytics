@@ -46,7 +46,10 @@ function ReviewPage() {
   const [sf, setSf] = useState<SourceFile | null>(null);
   const [defs, setDefs] = useState<FieldDef[]>([]);
   const [rows, setRows] = useState<ParsedRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingMeta, setLoadingMeta] = useState(true);
+  const [rowsLoading, setRowsLoading] = useState(true);
+  const [rowsLoaded, setRowsLoaded] = useState(0);
+  const [rowsTotal, setRowsTotal] = useState<number | null>(null);
   const [busy, setBusy] = useState<"reparse" | "approve" | null>(null);
 
   const [hideDuplicates, setHideDuplicates] = useState(false);
@@ -58,59 +61,88 @@ function ReviewPage() {
     logPhiAccess({ action: "view_source_file", target_table: "source_files", target_id: id, source_file_id: id });
   }, [id]);
 
-  // Chunked fetch — Supabase caps a single response at 1000 rows.
-  async function fetchAllRows(): Promise<ParsedRow[]> {
-    const PAGE = 1000;
-    const all: ParsedRow[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await supabase
-        .from("parsed_rows" as any)
-        .select(ROW_SELECT)
-        .eq("source_file_id", id)
-        .order("row_index")
-        .range(from, from + PAGE - 1);
-      if (error) throw error;
-      const page = (data ?? []) as unknown as ParsedRow[];
-      all.push(...page);
-      if (page.length < PAGE) break;
-    }
-    return all;
-  }
-
   useEffect(() => {
     let alive = true;
     let refetchTimer: ReturnType<typeof setTimeout> | null = null;
 
-    async function load() {
+    // 1) Load metadata first so the page paints immediately
+    (async () => {
       try {
-        const [{ data: file }, { data: defs }, prs] = await Promise.all([
+        const [{ data: file, error: fErr }, { data: fd }] = await Promise.all([
           supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle(),
           supabase.from("field_definitions" as any).select("field_key,label,data_type,display_order").eq("is_active", true).order("display_order"),
-          fetchAllRows(),
         ]);
         if (!alive) return;
+        if (fErr) throw fErr;
         setSf((file ?? null) as unknown as SourceFile);
-        setDefs((defs ?? []) as unknown as FieldDef[]);
-        setRows(prs);
+        setDefs((fd ?? []) as unknown as FieldDef[]);
       } catch (e: any) {
-        if (alive) toast.error(e?.message ?? "Failed to load review data");
+        if (alive) toast.error(e?.message ?? "Failed to load file");
       } finally {
-        if (alive) setLoading(false);
+        if (alive) setLoadingMeta(false);
+      }
+    })();
+
+    // 2) Stream rows in parallel pages, appending as they arrive
+    async function loadRows() {
+      setRowsLoading(true);
+      setRowsLoaded(0);
+      const PAGE = 1000;
+      try {
+        const { data: head, error: hErr, count } = await supabase
+          .from("parsed_rows" as any)
+          .select(ROW_SELECT, { count: "exact" })
+          .eq("source_file_id", id)
+          .order("row_index")
+          .range(0, PAGE - 1);
+        if (hErr) throw hErr;
+        if (!alive) return;
+        const headRows = (head ?? []) as unknown as ParsedRow[];
+        const total = count ?? headRows.length;
+        setRowsTotal(total);
+        const acc: ParsedRow[] = new Array(total);
+        headRows.forEach((r, i) => { acc[i] = r; });
+        setRows(headRows.slice());
+        setRowsLoaded(headRows.length);
+
+        if (total <= PAGE) { setRowsLoading(false); return; }
+
+        const ranges: Array<[number, number]> = [];
+        for (let from = PAGE; from < total; from += PAGE) {
+          ranges.push([from, Math.min(from + PAGE - 1, total - 1)]);
+        }
+        let cursor = 0;
+        async function worker() {
+          while (alive && cursor < ranges.length) {
+            const my = cursor++;
+            const [from, to] = ranges[my];
+            const { data, error } = await supabase
+              .from("parsed_rows" as any)
+              .select(ROW_SELECT)
+              .eq("source_file_id", id)
+              .order("row_index")
+              .range(from, to);
+            if (error) throw error;
+            if (!alive) return;
+            const page = (data ?? []) as unknown as ParsedRow[];
+            page.forEach((r, i) => { acc[from + i] = r; });
+            setRowsLoaded((n) => n + page.length);
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(4, ranges.length) }, worker));
+        if (!alive) return;
+        setRows(acc.filter(Boolean));
+      } catch (e: any) {
+        if (alive) toast.error(e?.message ?? "Failed to load parsed rows");
+      } finally {
+        if (alive) setRowsLoading(false);
       }
     }
-    load();
+    loadRows();
 
-    // Debounce realtime fan-out: parsing can fire thousands of postgres_changes
-    // events in a few seconds. Coalesce into a single refetch.
     function scheduleRowsRefetch() {
       if (refetchTimer) return;
-      refetchTimer = setTimeout(async () => {
-        refetchTimer = null;
-        try {
-          const fresh = await fetchAllRows();
-          if (alive) setRows(fresh);
-        } catch {}
-      }, 800);
+      refetchTimer = setTimeout(() => { refetchTimer = null; loadRows(); }, 800);
     }
 
     const ch = supabase
