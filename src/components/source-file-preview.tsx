@@ -53,7 +53,7 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
             if (!alive) return;
             setTextPreview(value);
           } else if (/\.pdf$/i.test(filename)) {
-            const pdfjs: any = await import(/* @vite-ignore */ "pdfjs-dist/build/pdf.mjs" as any);
+            const pdfjs: any = await import("pdfjs-dist/build/pdf.mjs");
             pdfjs.GlobalWorkerOptions.workerSrc =
               "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/build/pdf.worker.min.mjs";
             const doc = await pdfjs.getDocument({ data: bytes }).promise;
