@@ -311,7 +311,15 @@ function ReviewPage() {
             <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
               <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
                 <span className="font-medium text-foreground">Parsed rows</span>
-                <span>· showing {displayRows.length.toLocaleString()} of {sf.row_count.toLocaleString()} total</span>
+                <span>
+                  · showing {displayRows.length.toLocaleString()} of {sf.row_count.toLocaleString()} total
+                  {rowsLoading && rowsTotal !== null && (
+                    <span className="ml-1 inline-flex items-center gap-1 text-primary">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      loaded {rowsLoaded.toLocaleString()} / {rowsTotal.toLocaleString()}
+                    </span>
+                  )}
+                </span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-400" /> low confidence</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> error</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-muted-foreground" /> duplicate</span>
@@ -331,8 +339,10 @@ function ReviewPage() {
               />
             </Card>
           ) : (
-            <Card className="p-8 text-sm text-muted-foreground flex items-center justify-center" style={{ height: "70vh" }}>
-              {sf.status === "parsing" ? "Parsing…" : "No parsed rows yet."}
+            <Card className="p-8 text-sm text-muted-foreground flex items-center justify-center gap-2" style={{ height: "70vh" }}>
+              {rowsLoading ? (<><Loader2 className="h-4 w-4 animate-spin" /> Loading parsed rows…</>)
+                : sf.status === "parsing" ? "Parsing…"
+                : "No parsed rows yet."}
             </Card>
           )}
         </div>
