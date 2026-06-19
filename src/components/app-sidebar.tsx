@@ -50,8 +50,6 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
       // does not hold the Supabase auth lock waiting on a network round-trip,
       // so a subsequent sign-in on /auth isn't blocked by a pending signOut.
       await supabase.auth.signOut({ scope: "local" }).catch(() => null);
-      // Fire-and-forget global revocation; failures here don't matter to the UX.
-      void supabase.auth.signOut().catch(() => null);
       toast.success("Signed out");
     } catch (e) {
       console.error("Sign out error:", e);
