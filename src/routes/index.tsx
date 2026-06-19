@@ -226,7 +226,7 @@ function Dashboard() {
       setUnpaidRows((data ?? []) as UnpaidRow[]);
     }, 300);
     return () => clearTimeout(handle);
-  }, [profile, tab, filterDeps]);
+  }, [profile, tab, filterDeps, refreshTick]);
 
   async function saveThreshold(days: number) {
     setThreshold(days);
