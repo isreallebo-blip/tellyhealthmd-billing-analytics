@@ -3,7 +3,7 @@ import { useNavigate, Link } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificationsBell } from "@/components/notifications-bell";
-import { UploadProgressDock } from "@/components/upload-progress-dock";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function AppShell({ children, adminOnly = false }: { children: ReactNode; adminOnly?: boolean }) {
