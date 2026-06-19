@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X } from "lucide-react";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -162,6 +162,42 @@ function FilesPage() {
     if (!raw) return toast.error("Original file bytes not stored");
     const bytes = hexToBytes(raw);
     triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+  }
+
+  async function retryParse(f: SourceFile) {
+    setBusy(f.id + ":rp");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      // Optimistically flip status so UI shows it immediately
+      await supabase.from("source_files" as any)
+        .update({ status: "parsing", error: null })
+        .eq("id", f.id);
+      const r = await fetch(`${url}/functions/v1/reparse-source-file`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: key,
+        },
+        body: JSON.stringify({ source_file_id: f.id }),
+      });
+      const text = await r.text();
+      if (!r.ok) {
+        let msg = text;
+        try { msg = JSON.parse(text)?.error ?? text; } catch {}
+        throw new Error(msg || `Retry failed (${r.status})`);
+      }
+      toast.success("Re-parsing started");
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Retry failed");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function exportReviewed(f: SourceFile) {
@@ -336,6 +372,17 @@ function FilesPage() {
                       <Button variant="ghost" size="sm" asChild>
                         <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
                       </Button>
+                      {(f.status === "failed" || f.status === "parsing" || f.status === "queued") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Retry parsing"
+                          disabled={busy === f.id + ":rp"}
+                          onClick={() => retryParse(f)}
+                        >
+                          {busy === f.id + ":rp" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
