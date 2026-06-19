@@ -33,6 +33,8 @@ type ParsedRow = {
   confidence: Record<string, number>;
   validation_errors: Record<string, string>;
   edited: boolean;
+  is_duplicate: boolean;
+  duplicate_of_source_file_id: string | null;
 };
 
 function ReviewPage() {
