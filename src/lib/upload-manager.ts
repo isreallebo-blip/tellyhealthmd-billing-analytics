@@ -1,11 +1,14 @@
 // Module-level upload manager. Runs uploads in the background so they continue
 // even when the user navigates away from the Upload page. Subscribers get
 // notified of state changes via useSyncExternalStore.
+//
+// Heavy parsing libraries (xlsx, mammoth, pdfjs) are dynamically imported
+// inside processOne so they don't ship with every page — this module is
+// reachable from AppShell via the progress dock.
 
-import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
-import { detectKind, extractUnstructuredText } from "@/lib/file-extract";
 import { toast } from "sonner";
+
 
 export type UploadItemStatus = "queued" | "uploading" | "done" | "error";
 
