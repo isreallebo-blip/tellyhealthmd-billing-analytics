@@ -21,6 +21,7 @@ import { Route as AiTrainingRouteImport } from './routes/ai-training'
 import { Route as AiInsightsRouteImport } from './routes/ai-insights'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FilesIndexRouteImport } from './routes/files.index'
+import { Route as SettingsActivityRouteImport } from './routes/settings.activity'
 import { Route as FilesIdRouteImport } from './routes/files.$id'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
@@ -90,6 +91,11 @@ const FilesIndexRoute = FilesIndexRouteImport.update({
   path: '/',
   getParentRoute: () => FilesRoute,
 } as any)
+const SettingsActivityRoute = SettingsActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const FilesIdRoute = FilesIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -141,7 +147,7 @@ export interface FileRoutesByFullPath {
   '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
   '/notifications': typeof NotificationsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/upload': typeof UploadRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/audit': typeof AdminAuditRoute
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
+  '/settings/activity': typeof SettingsActivityRoute
   '/files/': typeof FilesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -162,7 +169,7 @@ export interface FileRoutesByTo {
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
   '/notifications': typeof NotificationsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/upload': typeof UploadRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/audit': typeof AdminAuditRoute
@@ -172,6 +179,7 @@ export interface FileRoutesByTo {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
+  '/settings/activity': typeof SettingsActivityRoute
   '/files': typeof FilesIndexRoute
 }
 export interface FileRoutesById {
@@ -185,7 +193,7 @@ export interface FileRoutesById {
   '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
   '/notifications': typeof NotificationsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/upload': typeof UploadRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/audit': typeof AdminAuditRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
+  '/settings/activity': typeof SettingsActivityRoute
   '/files/': typeof FilesIndexRoute
 }
 export interface FileRouteTypes {
@@ -219,6 +228,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
+    | '/settings/activity'
     | '/files/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -240,6 +250,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
+    | '/settings/activity'
     | '/files'
   id:
     | '__root__'
@@ -262,6 +273,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
+    | '/settings/activity'
     | '/files/'
   fileRoutesById: FileRoutesById
 }
@@ -275,7 +287,7 @@ export interface RootRouteChildren {
   ExportsRoute: typeof ExportsRoute
   FilesRoute: typeof FilesRouteWithChildren
   NotificationsRoute: typeof NotificationsRoute
-  SettingsRoute: typeof SettingsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   UploadRoute: typeof UploadRoute
   AdminAlertsRoute: typeof AdminAlertsRoute
   AdminAuditRoute: typeof AdminAuditRoute
@@ -372,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FilesIndexRouteImport
       parentRoute: typeof FilesRoute
     }
+    '/settings/activity': {
+      id: '/settings/activity'
+      path: '/activity'
+      fullPath: '/settings/activity'
+      preLoaderRoute: typeof SettingsActivityRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/files/$id': {
       id: '/files/$id'
       path: '/$id'
@@ -443,6 +462,18 @@ const FilesRouteChildren: FilesRouteChildren = {
 
 const FilesRouteWithChildren = FilesRoute._addFileChildren(FilesRouteChildren)
 
+interface SettingsRouteChildren {
+  SettingsActivityRoute: typeof SettingsActivityRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsActivityRoute: SettingsActivityRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AiInsightsRoute: AiInsightsRoute,
@@ -453,7 +484,7 @@ const rootRouteChildren: RootRouteChildren = {
   ExportsRoute: ExportsRoute,
   FilesRoute: FilesRouteWithChildren,
   NotificationsRoute: NotificationsRoute,
-  SettingsRoute: SettingsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   UploadRoute: UploadRoute,
   AdminAlertsRoute: AdminAlertsRoute,
   AdminAuditRoute: AdminAuditRoute,
