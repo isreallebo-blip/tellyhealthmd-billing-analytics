@@ -59,7 +59,7 @@ type SourceFile = {
   id: string;
   filename: string;
   detected_company: string | null;
-  status: "queued" | "parsing" | "needs_review" | "approved" | "failed";
+  status: "queued" | "parsing" | "needs_review" | "approved" | "failed" | "publishing";
   row_count: number;
   size_bytes: number;
   uploaded_at: string;
