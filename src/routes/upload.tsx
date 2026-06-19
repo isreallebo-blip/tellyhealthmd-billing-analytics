@@ -36,6 +36,69 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
+// Parse a worksheet into row objects, auto-detecting the real header row.
+// Spreadsheets often have title / blank / merged rows above the column
+// titles; using sheet_to_json directly turns those into garbage keys like
+// "__EMPTY", "__EMPTY_1". Instead, read as array-of-arrays and pick the
+// header row by looking for the widest run of non-empty text cells.
+function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
+  const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, {
+    header: 1,
+    defval: null,
+    blankrows: false,
+    raw: true,
+  });
+  if (aoa.length === 0) return [];
+
+  const cellText = (v: any) =>
+    v == null ? "" : typeof v === "string" ? v.trim() : String(v).trim();
+
+  const SCAN = Math.min(aoa.length, 25);
+  let headerIdx = 0;
+  let bestScore = -1;
+  for (let i = 0; i < SCAN; i++) {
+    const row = aoa[i] ?? [];
+    let strings = 0;
+    let nonEmpty = 0;
+    for (const c of row) {
+      const t = cellText(c);
+      if (!t) continue;
+      nonEmpty++;
+      if (typeof c === "string" && isNaN(Number(t))) strings++;
+    }
+    const score = strings >= 2 ? strings * 10 + nonEmpty : 0;
+    if (score > bestScore) {
+      bestScore = score;
+      headerIdx = i;
+    }
+  }
+
+  const headerRow = aoa[headerIdx] ?? [];
+  const seen = new Map<string, number>();
+  const headers: string[] = headerRow.map((c, i) => {
+    let name = cellText(c);
+    if (!name) name = `Column ${XLSX.utils.encode_col(i)}`;
+    const n = seen.get(name) ?? 0;
+    seen.set(name, n + 1);
+    return n === 0 ? name : `${name} (${n + 1})`;
+  });
+
+  const out: Record<string, any>[] = [];
+  for (let r = headerIdx + 1; r < aoa.length; r++) {
+    const row = aoa[r] ?? [];
+    if (row.every((c) => c == null || cellText(c) === "")) continue;
+    const obj: Record<string, any> = {};
+    let any = false;
+    for (let i = 0; i < headers.length; i++) {
+      const v = row[i];
+      obj[headers[i]] = v == null || v === "" ? null : v;
+      if (v != null && cellText(v) !== "") any = true;
+    }
+    if (any) out.push(obj);
+  }
+  return out;
+}
+
 function UploadPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
