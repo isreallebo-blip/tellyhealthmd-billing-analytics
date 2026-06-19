@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sparkles, AlertCircle, AlertTriangle, CheckCircle2, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 export type Insight = {
   severity: "Critical" | "Warning" | "Positive" | "Info";
@@ -25,6 +26,7 @@ const SEVERITY = {
 export function AiInsightsPanel({ autoRunSignal }: { autoRunSignal?: number }) {
   const runFn = useServerFn(runAiInsights);
   const getFn = useServerFn(getLatestInsights);
+  const { user, loading: authLoading } = useAuth();
   const [insights, setInsights] = useState<Insight[] | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,12 +39,17 @@ export function AiInsightsPanel({ autoRunSignal }: { autoRunSignal?: number }) {
         setInsights(data.insights as Insight[]);
         setGeneratedAt(data.generated_at);
       }
+    } catch {
+      // ignore — likely no session yet
     } finally {
       setInitial(false);
     }
   }, [getFn]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    load();
+  }, [authLoading, user?.id, load]);
 
   const run = useCallback(async () => {
     setLoading(true);
