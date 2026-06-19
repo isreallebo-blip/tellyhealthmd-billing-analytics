@@ -141,12 +141,13 @@ function FilesPage() {
     for (const id of ids) {
       const f = files.find((x) => x.id === id);
       if (!f) continue;
-      const { data, error } = await supabase.from("source_files" as any).select("file_bytes,mime").eq("id", id).single();
-      if (error || !data) continue;
-      const raw = (data as any).file_bytes as string | null;
+      const { data, error } = await (supabase as any).rpc("download_source_file", { _id: id });
+      if (error || !data || !data.length) continue;
+      const row = data[0];
+      const raw = row.file_bytes as string | null;
       if (!raw) continue;
-      const bytes = hexToBytes(raw);
-      triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+      const bytes = typeof raw === "string" && raw.startsWith("\\x") ? hexToBytes(raw) : hexToBytes(raw as string);
+      triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: row.mime || "application/octet-stream" }), f.filename);
       n++;
     }
     setBulkBusy(null);
@@ -155,13 +156,14 @@ function FilesPage() {
 
   async function downloadOriginal(f: SourceFile) {
     setBusy(f.id + ":dl");
-    const { data, error } = await supabase.from("source_files" as any).select("file_bytes,mime").eq("id", f.id).single();
+    const { data, error } = await (supabase as any).rpc("download_source_file", { _id: f.id });
     setBusy(null);
-    if (error || !data) return toast.error(error?.message ?? "Could not load file");
-    const raw = (data as any).file_bytes as string | null;
+    if (error || !data || !data.length) return toast.error(error?.message ?? "Could not load file");
+    const row = data[0];
+    const raw = row.file_bytes as string | null;
     if (!raw) return toast.error("Original file bytes not stored");
     const bytes = hexToBytes(raw);
-    triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+    triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: row.mime || "application/octet-stream" }), f.filename);
   }
 
   async function retryParse(f: SourceFile) {
