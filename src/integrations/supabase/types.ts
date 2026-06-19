@@ -958,6 +958,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      link_legacy_claims_to_source_file: {
+        Args: { _source_file_id: string }
+        Returns: number
+      }
       log_phi_access: {
         Args: {
           _action: string

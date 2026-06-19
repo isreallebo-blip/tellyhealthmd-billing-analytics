@@ -215,14 +215,19 @@ Deno.serve(async (req) => {
             `Row count mismatch: read ${pagedTotal} parsed rows but only accounted for ${accountedFor} (inserted=${inserted}, skipped=${skipped}, duplicates=${dupSkipped}). Please re-publish.`,
           );
         }
+        const { data: linkedLegacy, error: linkErr } = await db
+          .rpc("link_legacy_claims_to_source_file", { _source_file_id: source_file_id });
+        if (linkErr) throw linkErr;
+        const linked = Number(linkedLegacy ?? 0);
+
         const { count: claimsCount, error: ccErr } = await db
           .from("claims_raw")
           .select("id", { count: "exact", head: true })
           .eq("source_file_id", source_file_id);
         if (ccErr) throw ccErr;
-        if ((claimsCount ?? 0) !== inserted) {
+        if ((claimsCount ?? 0) !== inserted + linked) {
           throw new Error(
-            `Final claim count (${claimsCount ?? 0}) does not match inserted total (${inserted}). Please re-publish.`,
+            `Final claim count (${claimsCount ?? 0}) does not match inserted + linked total (${inserted + linked}). Please re-publish.`,
           );
         }
 
@@ -232,7 +237,7 @@ Deno.serve(async (req) => {
           approved_at: new Date().toISOString(),
           error: null,
         }).eq("id", source_file_id);
-        console.log("approve-source-file done", { source_file_id, inserted, skipped, dupSkipped, claimsCount });
+        console.log("approve-source-file done", { source_file_id, inserted, linked, skipped, dupSkipped, claimsCount });
       } catch (bgErr: any) {
         console.error("approve-source-file background failed", bgErr);
         await db.from("source_files").update({

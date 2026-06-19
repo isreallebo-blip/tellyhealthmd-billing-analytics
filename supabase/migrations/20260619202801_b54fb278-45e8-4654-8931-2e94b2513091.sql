@@ -1,0 +1,1 @@
+SELECT public.link_legacy_claims_to_source_file('58c20b75-e6af-4b7f-b11e-97dc1e5867fa'::uuid);
