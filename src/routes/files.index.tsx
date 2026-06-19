@@ -107,6 +107,22 @@ function FilesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
+  type SortKey = "filename" | "detected_company" | "status" | "row_count" | "size_bytes" | "uploaded_at";
+  const [sortKey, setSortKey] = useState<SortKey>("uploaded_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setSortDir(k === "uploaded_at" || k === "row_count" || k === "size_bytes" ? "desc" : "asc"); }
+  };
+  const SortHeader = ({ k, children, className }: { k: SortKey; children: React.ReactNode; className?: string }) => {
+    const active = sortKey === k;
+    const Icon = !active ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+    return (
+      <button type="button" onClick={() => toggleSort(k)} className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${active ? "text-foreground" : ""} ${className ?? ""}`}>
+        {children}<Icon className={`h-3.5 w-3.5 ${active ? "opacity-100" : "opacity-40"}`} />
+      </button>
+    );
+  };
   const uploadState = useSyncExternalStore(uploadManager.subscribe, uploadManager.getState, uploadManager.getState);
   useSyncExternalStore(publishingTracker.subscribe, publishingTracker.getSnapshot, publishingTracker.getSnapshot);
   // Build map: sourceFileId -> { phase, percent } from in-progress uploads.
