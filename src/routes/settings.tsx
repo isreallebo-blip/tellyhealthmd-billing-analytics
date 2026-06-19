@@ -190,6 +190,21 @@ function SettingsPage() {
             <Button onClick={saveFilters}>Save defaults</Button>
           </CardContent>
         </Card>
+
+        {/* 5. File Activity Log */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><ScrollText className="h-5 w-5" /> File Activity Log</CardTitle>
+            <CardDescription>
+              See every file that was uploaded, parsed, approved, or deleted — with timestamps and the user who did it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link to="/settings/activity">Open activity log <ChevronRight className="h-4 w-4 ml-1" /></Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </>
   );
