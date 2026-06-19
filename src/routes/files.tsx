@@ -64,7 +64,7 @@ function FilesPage() {
     async function load() {
       const { data } = await supabase
         .from("source_files" as any)
-        .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error")
+        .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
         .order("uploaded_at", { ascending: false })
         .limit(200);
       if (!alive) return;
