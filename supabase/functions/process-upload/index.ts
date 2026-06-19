@@ -281,15 +281,26 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
     await db.from("source_files").update({ status: "parsing" }).eq("id", sourceFileId);
 
     // Unstructured path: run LLM extraction first
+    let truncationWarning: string | null = null;
     if (opts?.kind === "unstructured") {
       if (!opts.text || opts.text.trim().length < 20) {
         throw new Error("Document contains no extractable text.");
       }
-      rows = await extractRowsFromText(opts.text, defs);
+      const extracted = await extractRowsFromText(opts.text, defs);
+      rows = extracted.rows;
+      if (extracted.truncated) {
+        // Ticket 5: surface truncation instead of silently dropping the tail.
+        truncationWarning = `Input was clipped from ${extracted.originalChars.toLocaleString()} to ${extracted.usedChars.toLocaleString()} characters before AI extraction; rows from the later pages may be missing.`;
+        try {
+          await db.from("source_files").update({ error: truncationWarning }).eq("id", sourceFileId);
+        } catch {}
+      }
       if (rows.length === 0) {
         await db.from("source_files").update({
           status: "needs_review", row_count: 0,
-          error: "AI extracted no rows from this document.",
+          error: truncationWarning
+            ? `AI extracted no rows from this document. ${truncationWarning}`
+            : "AI extracted no rows from this document.",
         }).eq("id", sourceFileId);
         return;
       }
