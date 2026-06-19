@@ -652,7 +652,7 @@ Deno.serve(async (req) => {
       fileBytes = decodeBase64(file_b64);
     }
 
-    const requestedId = upload_mode === "start_structured" && source_file_id ? source_file_id : null;
+    const requestedId = source_file_id ?? null;
     let sf: { id: string } | null = null;
     if (requestedId) {
       const { data: existing } = await userClient.from("source_files").select("id").eq("id", requestedId).maybeSingle();
