@@ -104,8 +104,11 @@ async function reparseInBackground(sourceFileId: string) {
     await db.from("source_files").update({ status: "parsing", error: null }).eq("id", sourceFileId);
 
     const { data: sf, error: sfErr } = await db
-      .from("source_files").select("filename,file_bytes").eq("id", sourceFileId).maybeSingle();
+      .from("source_files").select("filename,file_bytes,kind").eq("id", sourceFileId).maybeSingle();
     if (sfErr || !sf) throw new Error("Source file not found");
+    if (sf.kind === "unstructured") {
+      throw new Error("Re-parse for AI-extracted documents isn't supported yet — adjust field synonyms and re-upload the file, or edit rows inline and Approve.");
+    }
     if (!sf.file_bytes) throw new Error("Original file bytes are not stored — please re-upload.");
 
     // file_bytes comes back as hex string "\\x..." from PostgREST
