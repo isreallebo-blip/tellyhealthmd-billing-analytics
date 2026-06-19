@@ -45,6 +45,7 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
     setSigningOut(true);
     try {
       uploadManager.cancelAll();
+      void supabase.removeAllChannels();
       const signOutPromise = supabase.auth.signOut();
       const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 1500));
       await Promise.race([signOutPromise, timeoutPromise]);
@@ -52,7 +53,7 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
     } catch (e) {
       console.error("Sign out error:", e);
     } finally {
-      navigate({ to: "/auth" });
+      navigate({ to: "/auth", replace: true });
     }
   }
 
