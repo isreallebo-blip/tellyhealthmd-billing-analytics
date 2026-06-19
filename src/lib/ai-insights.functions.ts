@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 
@@ -158,23 +158,60 @@ ${JSON.stringify(stats, null, 2)}
 Analyze and return insights.`;
 
     const gateway = createLovableAiGatewayProvider(key);
+    const model = gateway("google/gemini-2.5-flash");
+
+    const jsonInstruction =
+      '\n\nReturn ONLY a JSON object matching this exact shape (no markdown, no commentary):\n' +
+      '{ "insights": [ { "severity": "Critical"|"Warning"|"Positive"|"Info", "title": string, "explanation": string, "affected_segment": string } ] }\n' +
+      'Provide between 6 and 12 items.';
+
+    function extractJSON(raw: string): unknown {
+      let s = raw
+        .replace(/^\uFEFF/, "")
+        .replace(/```json\s*/gi, "")
+        .replace(/```\s*/g, "")
+        .trim();
+      if (!s.startsWith("{") && !s.startsWith("[")) {
+        const i = s.indexOf("{");
+        const j = s.lastIndexOf("}");
+        if (i !== -1 && j > i) s = s.slice(i, j + 1);
+      }
+      s = s.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]").replace(/[\x00-\x1F\x7F]/g, " ");
+      return JSON.parse(s);
+    }
+
+    async function callModel(): Promise<z.infer<typeof InsightSchema>> {
+      const { text } = await generateText({
+        model,
+        system,
+        prompt: prompt + jsonInstruction,
+      });
+      const parsed = extractJSON(text);
+      const validated = InsightSchema.safeParse(parsed);
+      if (validated.success) return validated.data;
+      // Some models wrap the object — try the bare "insights" array
+      if (parsed && typeof parsed === "object" && Array.isArray((parsed as any).insights)) {
+        const fallback = InsightSchema.safeParse({ insights: (parsed as any).insights });
+        if (fallback.success) return fallback.data;
+      }
+      throw new Error(validated.error.message);
+    }
 
     try {
-      const { experimental_output } = await generateText({
-        model: gateway("openai/gpt-5"),
-        system,
-        prompt,
-        experimental_output: Output.object({ schema: InsightSchema }),
-      });
-
-      const result = experimental_output as z.infer<typeof InsightSchema>;
+      let result: z.infer<typeof InsightSchema>;
+      try {
+        result = await callModel();
+      } catch {
+        // One retry — models occasionally emit malformed JSON on the first try
+        result = await callModel();
+      }
 
       await supabase.from("ai_insights_runs").upsert(
         {
           user_id: userId,
           insights: result.insights,
           stats_summary: stats.totals,
-          model: "openai/gpt-5",
+          model: "google/gemini-2.5-flash",
           generated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -185,7 +222,7 @@ Analyze and return insights.`;
       const msg = String(err?.message ?? err);
       if (msg.includes("429")) throw new Error("AI rate limit reached. Please try again shortly.");
       if (msg.includes("402")) throw new Error("AI credits exhausted. Add credits in Settings → Plans & credits.");
-      throw new Error(`AI analysis failed: ${msg}`);
+      throw new Error(`AI analysis failed: ${msg.slice(0, 300)}`);
     }
   });
 
