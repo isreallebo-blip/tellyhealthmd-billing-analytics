@@ -18,14 +18,18 @@ function hexToBytes(hex: string): Uint8Array {
 export function SourceFilePreview({ sourceFileId, filename }: Props) {
   const [wb, setWb] = useState<XLSX.WorkBook | null>(null);
   const [sheetName, setSheetName] = useState<string | null>(null);
+  const [textPreview, setTextPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const isStructured = /\.(xlsx|xls|csv)$/i.test(filename);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setError(null);
     setWb(null);
+    setTextPreview(null);
     (async () => {
       try {
         const { data, error } = await supabase
@@ -37,13 +41,45 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
         const raw = (data as any)?.file_bytes;
         if (!raw) throw new Error("Original file bytes not available.");
         const bytes = typeof raw === "string" ? hexToBytes(raw) : new Uint8Array(raw);
-        const isCsv = /\.csv$/i.test(filename);
-        const book = isCsv
-          ? XLSX.read(new TextDecoder().decode(bytes), { type: "string" })
-          : XLSX.read(bytes, { type: "array", cellDates: false });
-        if (!alive) return;
-        setWb(book);
-        setSheetName(book.SheetNames[0] ?? null);
+
+        if (!isStructured) {
+          // Unstructured: show extracted text (best-effort) or a binary placeholder
+          if (/\.txt$/i.test(filename)) {
+            if (!alive) return;
+            setTextPreview(new TextDecoder().decode(bytes));
+          } else if (/\.docx$/i.test(filename)) {
+            const mammoth = (await import("mammoth")).default;
+            const { value } = await mammoth.extractRawText({ arrayBuffer: bytes.buffer });
+            if (!alive) return;
+            setTextPreview(value);
+          } else if (/\.pdf$/i.test(filename)) {
+            const pdfjs: any = await import(/* @vite-ignore */ "pdfjs-dist/build/pdf.mjs" as any);
+            pdfjs.GlobalWorkerOptions.workerSrc =
+              "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/build/pdf.worker.min.mjs";
+            const doc = await pdfjs.getDocument({ data: bytes }).promise;
+            const parts: string[] = [];
+            const maxPages = Math.min(doc.numPages, 20);
+            for (let i = 1; i <= maxPages; i++) {
+              const page = await doc.getPage(i);
+              const c = await page.getTextContent();
+              parts.push(`── page ${i} ──\n` + c.items.map((it: any) => it.str ?? "").join(" "));
+            }
+            await doc.destroy?.();
+            if (!alive) return;
+            setTextPreview(parts.join("\n\n") + (doc.numPages > maxPages ? `\n\n…(${doc.numPages - maxPages} more pages)` : ""));
+          } else {
+            if (!alive) return;
+            setTextPreview("Preview not available for this file type.");
+          }
+        } else {
+          const isCsv = /\.csv$/i.test(filename);
+          const book = isCsv
+            ? XLSX.read(new TextDecoder().decode(bytes), { type: "string" })
+            : XLSX.read(bytes, { type: "array", cellDates: false });
+          if (!alive) return;
+          setWb(book);
+          setSheetName(book.SheetNames[0] ?? null);
+        }
       } catch (e: any) {
         if (alive) setError(e?.message ?? "Failed to load preview");
       } finally {
@@ -51,7 +87,7 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
       }
     })();
     return () => { alive = false; };
-  }, [sourceFileId, filename]);
+  }, [sourceFileId, filename, isStructured]);
 
   const grid = useMemo(() => {
     if (!wb || !sheetName) return null;
