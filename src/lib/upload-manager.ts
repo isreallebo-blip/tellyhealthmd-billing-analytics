@@ -30,6 +30,7 @@ type State = {
 
 const EMBED_BYTES_MAX = 6 * 1024 * 1024;
 const CONCURRENCY = 3;
+const STRUCTURED_CHUNK_ROWS = 1000;
 
 let state: State = { items: [], active: 0 };
 const listeners = new Set<() => void>();
@@ -123,13 +124,62 @@ async function processOne(item: UploadItem, file: File) {
     size_bytes: file.size,
     kind,
   };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) throw new Error("You're not signed in.");
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  const postUpload = async (body: Record<string, any>) => {
+    const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        apikey: publishableKey,
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    let data: any = null;
+    try { data = text ? JSON.parse(text) : null; } catch {}
+    if (!response.ok) throw new Error(data?.error ?? text ?? `Upload failed (${response.status})`);
+    return data as { source_file_id?: string | null };
+  };
+
   if (kind === "structured") {
     const XLSX = await import("xlsx");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: false });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    payload.rows = sheetToRows(XLSX, sheet);
-    if (embedBytes) payload.file_b64 = await fileToBase64(new Blob([buf]));
+    const rows = sheetToRows(XLSX, sheet);
+    const headers = Array.from(rows.reduce((set, row) => {
+      Object.keys(row ?? {}).forEach((key) => set.add(key));
+      return set;
+    }, new Set<string>()));
+    let sourceFileId: string | null = null;
+    for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
+      const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
+      const first = start === 0;
+      const last = start + STRUCTURED_CHUNK_ROWS >= rows.length;
+      const data = await postUpload({
+        ...payload,
+        upload_mode: first ? "start_structured" : "append_structured",
+        source_file_id: sourceFileId,
+        rows: chunk,
+        headers,
+        start_index: start,
+        total_rows: rows.length,
+        is_last_chunk: last,
+        ...(first && embedBytes ? { file_b64: await fileToBase64(new Blob([buf])) } : {}),
+      });
+      sourceFileId = data.source_file_id ?? sourceFileId;
+      if (!sourceFileId) throw new Error("Upload did not create a file record");
+      patchItem(item.id, { sourceFileId });
+      if (last) break;
+    }
+    return sourceFileId;
   } else {
     const [text, b64] = await Promise.all([
       extractUnstructuredText(file),
@@ -141,30 +191,7 @@ async function processOne(item: UploadItem, file: File) {
     payload.text = text;
     if (b64) payload.file_b64 = b64;
   }
-
-
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) throw new Error("You're not signed in.");
-
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      apikey: publishableKey,
-    },
-    body: JSON.stringify(payload),
-  });
-  const text = await response.text();
-  let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch {}
-  if (!response.ok) {
-    throw new Error(data?.error ?? text ?? `Upload failed (${response.status})`);
-  }
+  const data = await postUpload(payload);
   return (data?.source_file_id ?? null) as string | null;
 }
 
