@@ -160,6 +160,12 @@ const BATCH = 1000;
 const INSERT_CONCURRENCY = 5;
 const MAX_INSERT_RETRIES = 5;
 
+function bytesToPostgresBytea(bytes: Uint8Array): string {
+  const hex = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) hex[i] = bytes[i].toString(16).padStart(2, "0");
+  return `\\x${hex.join("")}`;
+}
+
 async function insertWithRetry(db: any, batch: any[]): Promise<void> {
   // Split-and-retry on statement timeout (57014) or transient errors.
   const tryInsert = async (rows: any[], attempt: number): Promise<void> => {
@@ -610,7 +616,7 @@ Deno.serve(async (req) => {
       filename,
       mime: mime ?? null,
       size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
-      file_bytes: fileBytes,
+      file_bytes: fileBytes ? bytesToPostgresBytea(fileBytes) : null,
       status: "queued",
       row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
       kind: fileKind,
