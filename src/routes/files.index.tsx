@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell, PageHeader } from "@/components/app-shell";
@@ -7,10 +7,12 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X, RotateCw } from "lucide-react";
 import { toast } from "sonner";
+import { uploadManager } from "@/lib/upload-manager";
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -65,7 +67,7 @@ type SourceFile = {
   kind: "structured" | "unstructured";
 };
 
-function StatusBadge({ status, percent }: { status: SourceFile["status"]; percent?: number | null }) {
+function StatusBadge({ status, percent, phase }: { status: SourceFile["status"]; percent?: number | null; phase?: "uploading" | "parsing" | null }) {
   const map: Record<SourceFile["status"], { label: string; cls: string; icon: any }> = {
     queued:       { label: "Queued",       cls: "bg-muted text-muted-foreground", icon: Clock },
     parsing:      { label: "Parsing",      cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
@@ -73,13 +75,23 @@ function StatusBadge({ status, percent }: { status: SourceFile["status"]; percen
     approved:     { label: "Approved",     cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300", icon: CheckCircle2 },
     failed:       { label: "Failed",       cls: "bg-destructive/15 text-destructive", icon: AlertCircle },
   };
-  const { label, cls, icon: Icon } = map[status];
-  const showPct = status === "parsing" && typeof percent === "number" && isFinite(percent);
+  const entry = map[status];
+  // When the upload manager is actively uploading this file, override the
+  // label so the user can see it's still streaming bytes (not yet parsing).
+  const effective = phase === "uploading"
+    ? { label: "Uploading", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-300", icon: Loader2 }
+    : entry;
+  const spinning = phase === "uploading" || status === "parsing" || status === "queued";
+  const showPct = (phase === "uploading" || status === "parsing") && typeof percent === "number" && isFinite(percent);
+  const pct = showPct ? Math.min(99, Math.max(0, Math.round(percent!))) : null;
   return (
-    <Badge variant="secondary" className={`${cls} gap-1 font-normal tabular-nums`}>
-      <Icon className={`h-3 w-3 ${status === "parsing" ? "animate-spin" : ""}`} />
-      {label}{showPct ? ` ${Math.min(99, Math.max(0, Math.round(percent!)))}%` : ""}
-    </Badge>
+    <div className="flex flex-col gap-1 min-w-[140px]">
+      <Badge variant="secondary" className={`${effective.cls} gap-1 font-normal tabular-nums w-fit`}>
+        <effective.icon className={`h-3 w-3 ${spinning ? "animate-spin" : ""}`} />
+        {effective.label}{pct !== null ? ` ${pct}%` : ""}
+      </Badge>
+      {pct !== null && <Progress value={pct} className="h-1.5" />}
+    </div>
   );
 }
 
@@ -92,6 +104,18 @@ function FilesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const uploadState = useSyncExternalStore(uploadManager.subscribe, uploadManager.getState, uploadManager.getState);
+  // Build map: sourceFileId -> { phase, percent } from in-progress uploads.
+  const uploadInfo: Record<string, { phase: "uploading"; percent: number | null }> = {};
+  for (const it of uploadState.items) {
+    if (!it.sourceFileId) continue;
+    if (it.status === "uploading" || it.status === "queued") {
+      const pct = it.totalRows && it.totalRows > 0 && typeof it.processedRows === "number"
+        ? Math.min(99, (it.processedRows / it.totalRows) * 100)
+        : null;
+      uploadInfo[it.sourceFileId] = { phase: "uploading", percent: pct };
+    }
+  }
 
   const allSelected = files.length > 0 && selected.size === files.length;
   const someSelected = selected.size > 0 && !allSelected;
@@ -406,7 +430,7 @@ function FilesPage() {
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>
                   <TableCell className="text-sm">{f.detected_company ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell><StatusBadge status={f.status} percent={progress[f.id]} /></TableCell>
+                  <TableCell><StatusBadge status={f.status} percent={uploadInfo[f.id]?.percent ?? progress[f.id]} phase={uploadInfo[f.id]?.phase ?? null} /></TableCell>
                   <TableCell className="text-right tabular-nums">{f.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{(f.size_bytes / 1024).toFixed(1)} KB</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(f.uploaded_at).toLocaleString()}</TableCell>
