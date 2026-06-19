@@ -335,7 +335,7 @@ async function pump() {
         }
       } catch (e: any) {
         const cancelled = e?.name === "AbortError" && controller.signal.aborted;
-        const isSignOut = cancelled && e?.message === "Sign out";
+        const isSignOut = cancelled && /sign out/i.test(String(e?.message ?? controller.signal.reason?.message ?? ""));
         const latest = state.items.find((x) => x.id === next.id);
         if (latest?.status === "done" || latest?.status === "error") return;
         patchItem(next.id, {
@@ -401,7 +401,7 @@ export const uploadManager = {
       if (it.status === "queued" || it.status === "uploading") {
         cancelledItemIds.add(it.id);
         const ctrl = inflightControllers.get(it.id);
-        if (ctrl) ctrl.abort(new DOMException("Cancelled by sign out", "AbortError"));
+        if (ctrl) ctrl.abort(new DOMException("Sign out", "AbortError"));
         fileRefs.delete(it.id);
       }
     });
