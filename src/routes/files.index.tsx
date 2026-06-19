@@ -254,16 +254,11 @@ function FilesPage() {
       })
       .subscribe();
 
-    // Poll parsed_rows counts for any files still parsing so the UI shows
-    // a percentage indicator of how far along the parse is.
-    const pollProgress = async () => {
-      const parsing = (await Promise.resolve(state.current?.files ?? [])) as SourceFile[];
-      // Read from state via closure since refresh updates `files`.
-    };
-    void pollProgress;
+    // Poll parsed_rows counts for any files still parsing so the UI shows a
+    // percentage indicator of how far along the parse is.
     const progressTimer = window.setInterval(async () => {
       if (!alive) return;
-      const parsing = stateRef.current.filter((f) => f.status === "parsing" || f.status === "queued");
+      const parsing = stateRef.current.filter((f: SourceFile) => f.status === "parsing");
       if (parsing.length === 0) {
         if (Object.keys(progressRef.current).length) {
           progressRef.current = {};
@@ -272,7 +267,7 @@ function FilesPage() {
         return;
       }
       const next: Record<string, number> = {};
-      await Promise.all(parsing.map(async (f) => {
+      await Promise.all(parsing.map(async (f: SourceFile) => {
         if (!f.row_count || f.row_count <= 0) return;
         const { count } = await supabase
           .from("parsed_rows" as any)
@@ -292,8 +287,7 @@ function FilesPage() {
   // Keep refs in sync so the polling interval always sees the latest list.
   const stateRef = useRef<SourceFile[]>([]);
   const progressRef = useRef<Record<string, number>>({});
-  const state = useRef<{ files: SourceFile[] }>({ files: [] });
-  useEffect(() => { stateRef.current = files; state.current.files = files; }, [files]);
+  useEffect(() => { stateRef.current = files; }, [files]);
   useEffect(() => { progressRef.current = progress; }, [progress]);
 
 
