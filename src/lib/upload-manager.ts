@@ -29,9 +29,15 @@ type State = {
 };
 
 const EMBED_BYTES_MAX = 6 * 1024 * 1024;
-const CONCURRENCY = 1;
+// Ticket 1: Process multiple files in parallel so a slow/large file doesn't
+// block the rest of the queue. Tuned against typical edge-function /
+// connection-pool limits — raise cautiously.
+const CONCURRENCY = 4;
 const STRUCTURED_CHUNK_ROWS = 1000;
 const POST_UPLOAD_TIMEOUT_MS = 180_000;
+
+// Ticket 3: Track in-flight AbortControllers per upload item so the UI can cancel.
+const inflightControllers = new Map<string, AbortController>();
 
 let state: State = { items: [], active: 0 };
 const listeners = new Set<() => void>();
@@ -111,7 +117,7 @@ function sheetToRows(XLSX: typeof import("xlsx"), sheet: any): Record<string, an
   return out;
 }
 
-async function processOne(item: UploadItem, file: File) {
+async function processOne(item: UploadItem, file: File, cancelSignal: AbortSignal) {
   patchItem(item.id, { status: "uploading", startedAt: Date.now() });
   // Dynamically import heavy libs so the progress dock doesn't ship them
   // on every page load.
@@ -133,7 +139,12 @@ async function processOne(item: UploadItem, file: File) {
   const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   const postUpload = async (body: Record<string, any>) => {
+    // Compose the per-request timeout signal with the user-cancel signal
+    // so either one aborts the in-flight fetch.
     const controller = new AbortController();
+    const onCancel = () => controller.abort(cancelSignal.reason ?? new DOMException("Cancelled", "AbortError"));
+    if (cancelSignal.aborted) onCancel();
+    else cancelSignal.addEventListener("abort", onCancel, { once: true });
     const timeout = window.setTimeout(() => controller.abort(), POST_UPLOAD_TIMEOUT_MS);
     const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
       method: "POST",
@@ -144,7 +155,10 @@ async function processOne(item: UploadItem, file: File) {
       },
       body: JSON.stringify(body),
       signal: controller.signal,
-    }).finally(() => window.clearTimeout(timeout));
+    }).finally(() => {
+      window.clearTimeout(timeout);
+      cancelSignal.removeEventListener("abort", onCancel);
+    });
     const text = await response.text();
     let data: any = null;
     try { data = text ? JSON.parse(text) : null; } catch {}
@@ -211,7 +225,10 @@ async function processOne(item: UploadItem, file: File) {
 
 async function pump() {
   while (running < CONCURRENCY) {
-    const next = state.items.find((it) => it.status === "queued");
+    // Pick the next queued item that isn't already being processed.
+    const next = state.items.find(
+      (it) => it.status === "queued" && !inflightControllers.has(it.id),
+    );
     if (!next) break;
     running++;
     setState({ active: running });
@@ -222,9 +239,11 @@ async function pump() {
       setState({ active: running });
       continue;
     }
+    const controller = new AbortController();
+    inflightControllers.set(next.id, controller);
     (async () => {
       try {
-        const sourceId = await processOne(next, fileRef);
+        const sourceId = await processOne(next, fileRef, controller.signal);
         patchItem(next.id, {
           status: "done",
           sourceFileId: sourceId,
@@ -236,13 +255,16 @@ async function pump() {
           onFirstSourceFile?.(sourceId);
         }
       } catch (e: any) {
+        const cancelled = e?.name === "AbortError" && controller.signal.aborted;
         patchItem(next.id, {
           status: "error",
-          error: e?.message ?? "Failed",
+          error: cancelled ? "Cancelled" : (e?.message ?? "Failed"),
           finishedAt: Date.now(),
         });
-        toast.error(`${next.name}: ${e?.message ?? "Failed"}`);
+        if (cancelled) toast.message(`${next.name}: cancelled`);
+        else toast.error(`${next.name}: ${e?.message ?? "Failed"}`);
       } finally {
+        inflightControllers.delete(next.id);
         fileRefs.delete(next.id);
         running--;
         setState({ active: running });
@@ -271,9 +293,16 @@ export const uploadManager = {
   remove(id: string) {
     const it = state.items.find((x) => x.id === id);
     if (!it) return;
-    if (it.status === "uploading") return; // can't cancel in-flight
+    // Ticket 3: cancel in-flight uploads via AbortController.
+    const ctrl = inflightControllers.get(id);
+    if (ctrl) ctrl.abort(new DOMException("Cancelled by user", "AbortError"));
+    inflightControllers.delete(id);
     fileRefs.delete(id);
     setState((s) => ({ ...s, items: s.items.filter((x) => x.id !== id) }));
+  },
+  cancel(id: string) {
+    const ctrl = inflightControllers.get(id);
+    if (ctrl) ctrl.abort(new DOMException("Cancelled by user", "AbortError"));
   },
   clearFinished() {
     setState((s) => ({
