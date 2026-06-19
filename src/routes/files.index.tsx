@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { uploadManager } from "@/lib/upload-manager";
+import { publishingTracker } from "@/lib/publishing-tracker";
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -67,7 +68,7 @@ type SourceFile = {
   kind: "structured" | "unstructured";
 };
 
-function StatusBadge({ status, percent, phase }: { status: SourceFile["status"]; percent?: number | null; phase?: "uploading" | "parsing" | null }) {
+function StatusBadge({ status, percent, phase, publishing }: { status: SourceFile["status"]; percent?: number | null; phase?: "uploading" | "parsing" | null; publishing?: boolean }) {
   const map: Record<SourceFile["status"], { label: string; cls: string; icon: any }> = {
     queued:       { label: "Analyzing",    cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
     parsing:      { label: "Analyzing",    cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
@@ -76,14 +77,15 @@ function StatusBadge({ status, percent, phase }: { status: SourceFile["status"];
     failed:       { label: "Failed",       cls: "bg-destructive/15 text-destructive", icon: AlertCircle },
   };
   const entry = map[status];
-  // While the browser is still streaming bytes for this file we get a
-  // phase="uploading" hint from the upload manager — fold it into the same
-  // "Analyzing" label so the user sees one continuous progress indicator.
-  const effective = phase === "uploading"
-    ? { label: "Analyzing", cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 }
-    : entry;
-  const spinning = phase === "uploading" || status === "parsing" || status === "queued";
-  const showPct = (phase === "uploading" || status === "parsing" || status === "queued") && typeof percent === "number" && isFinite(percent);
+  // While the background approve job is still running, override the badge
+  // so the user sees "Publishing…" instead of the stale "Needs Review".
+  const effective = publishing && status !== "approved" && status !== "failed"
+    ? { label: "Publishing", cls: "bg-violet-500/15 text-violet-700 dark:text-violet-300", icon: Loader2 }
+    : phase === "uploading"
+      ? { label: "Analyzing", cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 }
+      : entry;
+  const spinning = publishing || phase === "uploading" || status === "parsing" || status === "queued";
+  const showPct = !publishing && (phase === "uploading" || status === "parsing" || status === "queued") && typeof percent === "number" && isFinite(percent);
   const pct = showPct ? Math.min(99, Math.max(0, Math.round(percent!))) : null;
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
@@ -91,7 +93,7 @@ function StatusBadge({ status, percent, phase }: { status: SourceFile["status"];
         <effective.icon className={`h-3 w-3 ${spinning ? "animate-spin" : ""}`} />
         {effective.label}{pct !== null ? ` ${pct}%` : ""}
       </Badge>
-      {(spinning) && <Progress value={pct ?? 0} className="h-1.5" />}
+      {spinning && <Progress value={pct ?? (publishing ? 100 : 0)} className={`h-1.5 ${publishing ? "animate-pulse" : ""}`} />}
     </div>
   );
 }
@@ -106,6 +108,7 @@ function FilesPage() {
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
   const uploadState = useSyncExternalStore(uploadManager.subscribe, uploadManager.getState, uploadManager.getState);
+  useSyncExternalStore(publishingTracker.subscribe, publishingTracker.getSnapshot, publishingTracker.getSnapshot);
   // Build map: sourceFileId -> { phase, percent } from in-progress uploads.
   const uploadInfo: Record<string, { phase: "uploading"; percent: number | null }> = {};
   for (const it of uploadState.items) {
@@ -260,6 +263,8 @@ function FilesPage() {
     nextFiles.forEach((file) => {
       if (file.status === "needs_review" || file.status === "approved") uploadManager.markSourceFileComplete(file.id, "done");
       if (file.status === "failed") uploadManager.markSourceFileComplete(file.id, "error", file.error);
+      // Clear the transient "Publishing…" flag once the server confirms approve/fail.
+      if (file.status === "approved" || file.status === "failed") publishingTracker.clear(file.id);
     });
     setFiles(nextFiles);
   }
@@ -436,7 +441,7 @@ function FilesPage() {
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>
                   <TableCell className="text-sm">{f.detected_company ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell><StatusBadge status={f.status} percent={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.percent ?? progress[f.id] : null} phase={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.phase ?? null : null} /></TableCell>
+                  <TableCell><StatusBadge status={f.status} percent={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.percent ?? progress[f.id] : null} phase={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.phase ?? null : null} publishing={publishingTracker.isPublishing(f.id)} /></TableCell>
                   <TableCell className="text-right tabular-nums">{f.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{(f.size_bytes / 1024).toFixed(1)} KB</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(f.uploaded_at).toLocaleString()}</TableCell>
