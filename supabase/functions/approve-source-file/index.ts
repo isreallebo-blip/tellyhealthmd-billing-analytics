@@ -81,6 +81,9 @@ Deno.serve(async (req) => {
     // Wipe previous claims_raw for this source file (re-approval path)
     await db.from("claims_raw").delete().eq("source_file_id", source_file_id);
 
+    // Re-run dedup against the latest claims_raw before approving
+    await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: source_file_id });
+
     // Lookup tables (same as old process-upload)
     const [{ data: cptRef }, { data: overrides }] = await Promise.all([
       db.from("cpt_reference").select("cpt_code,service_category,billing_type"),
@@ -95,19 +98,20 @@ Deno.serve(async (req) => {
       overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
     );
 
-    // Page parsed_rows
-    let inserted = 0, skipped = 0;
+    // Page parsed_rows — skip duplicates
+    let inserted = 0, skipped = 0, dupSkipped = 0;
     const PAGE = 1000;
     let from = 0;
     while (true) {
       const { data: page, error: pErr } = await db
         .from("parsed_rows")
-        .select("data")
+        .select("data,is_duplicate")
         .eq("source_file_id", source_file_id)
         .order("row_index", { ascending: true })
         .range(from, from + PAGE - 1);
       if (pErr) throw pErr;
       if (!page || page.length === 0) break;
+
 
       const toInsert: Record<string, any>[] = [];
       for (const r of page) {
