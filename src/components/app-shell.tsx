@@ -34,7 +34,7 @@ export function AppShell({ children, adminOnly = false }: { children: ReactNode;
     <div className="min-h-screen flex bg-background">
       <AppSidebar profile={profile} />
       <main className="flex-1 min-w-0 pb-16 md:pb-0">{children}</main>
-      <UploadProgressDock />
+      {/* UploadProgressDock removed — progress now shows inline in the Files table */}
     </div>
   );
 }
