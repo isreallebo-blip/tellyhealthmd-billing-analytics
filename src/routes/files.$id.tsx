@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, RefreshCw, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { SourceFilePreview } from "@/components/source-file-preview";
 
 export const Route = createFileRoute("/files/$id")({
   component: () => (
