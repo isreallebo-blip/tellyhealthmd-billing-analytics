@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   FileText, DollarSign, AlertTriangle, Clock, CalendarIcon, Download,
-  TrendingUp, CheckCircle2, XCircle, Percent, Layers, X,
+  TrendingUp, CheckCircle2, XCircle, Percent, Layers, X, RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
@@ -110,6 +110,7 @@ function Dashboard() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const navigate = useNavigate();
+  const refreshDashboard = () => setRefreshTick((t) => t + 1);
 
   // Realtime: refresh stats when claims_raw or source_files change (e.g. after publish)
   useEffect(() => {
@@ -145,7 +146,8 @@ function Dashboard() {
       const [{ data: distinctRows }, { data: refs }, { data: setting }] = await Promise.all([
         supabase
           .from("claims_raw")
-          .select("company,prov_name,pri_ins,service_category")
+          .select("company,prov_name,pri_ins,service_category,source_files!inner(status)")
+          .eq("source_files.status", "approved")
           .limit(100000),
         supabase.from("cpt_reference").select("cpt_code,description,service_category,billing_type"),
         supabase.from("alert_settings").select("threshold_days").eq("user_id", profile.id).maybeSingle(),
@@ -326,6 +328,17 @@ function Dashboard() {
               <div className="ml-auto text-xs text-muted-foreground">
                 {loading || statsLoading ? "Loading…" : `${totalLines.toLocaleString()} claim lines in view`}
               </div>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                aria-label="Refresh dashboard"
+                title="Refresh dashboard"
+                onClick={refreshDashboard}
+                disabled={statsLoading}
+              >
+                <RefreshCw className={cn("h-4 w-4", statsLoading && "animate-spin")} />
+              </Button>
             </div>
           </CardContent>
         </Card>

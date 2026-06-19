@@ -1,0 +1,2 @@
+GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(text[], text[], text[], text[], date, date, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(text[], text[], text[], text[], date, date, integer) TO service_role;
