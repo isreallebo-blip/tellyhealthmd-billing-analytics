@@ -366,6 +366,7 @@ export const uploadManager = {
       size: f.size,
       status: "queued" as const,
     }));
+    items.forEach((it) => cancelledItemIds.delete(it.id));
     items.forEach((it, i) => fileRefs.set(it.id, files[i]));
     setState((s) => ({ ...s, items: [...s.items, ...items] }));
     // Pre-create source_files placeholders so the queued files appear in the
@@ -380,6 +381,7 @@ export const uploadManager = {
   remove(id: string) {
     const it = state.items.find((x) => x.id === id);
     if (!it) return;
+    cancelledItemIds.add(id);
     // Ticket 3: cancel in-flight uploads via AbortController.
     const ctrl = inflightControllers.get(id);
     if (ctrl) ctrl.abort(new DOMException("Cancelled by user", "AbortError"));
@@ -388,8 +390,35 @@ export const uploadManager = {
     setState((s) => ({ ...s, items: s.items.filter((x) => x.id !== id) }));
   },
   cancel(id: string) {
+    cancelledItemIds.add(id);
     const ctrl = inflightControllers.get(id);
     if (ctrl) ctrl.abort(new DOMException("Cancelled by user", "AbortError"));
+  },
+  cancelAll() {
+    state.items.forEach((it) => {
+      if (it.status === "queued" || it.status === "uploading") {
+        cancelledItemIds.add(it.id);
+        const ctrl = inflightControllers.get(it.id);
+        if (ctrl) ctrl.abort(new DOMException("Cancelled by sign out", "AbortError"));
+        fileRefs.delete(it.id);
+      }
+    });
+  },
+  markSourceFileComplete(sourceFileId: string, status: "done" | "error" = "done", error?: string | null) {
+    const matching = state.items.filter((it) => it.sourceFileId === sourceFileId && (it.status === "queued" || it.status === "uploading"));
+    if (matching.length === 0) return;
+    matching.forEach((it) => {
+      cancelledItemIds.add(it.id);
+      const ctrl = inflightControllers.get(it.id);
+      if (ctrl) ctrl.abort(new DOMException("Completed by server", "AbortError"));
+      fileRefs.delete(it.id);
+    });
+    setState((s) => ({
+      ...s,
+      items: s.items.map((it) => it.sourceFileId === sourceFileId && (it.status === "queued" || it.status === "uploading")
+        ? { ...it, status, error: status === "error" ? error ?? "Processing failed" : undefined, finishedAt: Date.now() }
+        : it),
+    }));
   },
   clearFinished() {
     setState((s) => ({
