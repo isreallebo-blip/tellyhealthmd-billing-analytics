@@ -46,14 +46,17 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
     try {
       uploadManager.cancelAll();
       void supabase.removeAllChannels();
-      const signOutPromise = supabase.auth.signOut().catch(() => null);
-      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 1500));
-      await Promise.race([signOutPromise, timeoutPromise]);
-      await supabase.auth.signOut({ scope: "local" });
+      // Local-only sign out: clears the session in this tab immediately and
+      // does not hold the Supabase auth lock waiting on a network round-trip,
+      // so a subsequent sign-in on /auth isn't blocked by a pending signOut.
+      await supabase.auth.signOut({ scope: "local" }).catch(() => null);
+      // Fire-and-forget global revocation; failures here don't matter to the UX.
+      void supabase.auth.signOut().catch(() => null);
       toast.success("Signed out");
     } catch (e) {
       console.error("Sign out error:", e);
     } finally {
+      setSigningOut(false);
       navigate({ to: "/auth", replace: true });
     }
   }
