@@ -58,21 +58,60 @@ function ReviewPage() {
     logPhiAccess({ action: "view_source_file", target_table: "source_files", target_id: id, source_file_id: id });
   }, [id]);
 
+  // Chunked fetch — Supabase caps a single response at 1000 rows.
+  async function fetchAllRows(): Promise<ParsedRow[]> {
+    const PAGE = 1000;
+    const all: ParsedRow[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("parsed_rows" as any)
+        .select(ROW_SELECT)
+        .eq("source_file_id", id)
+        .order("row_index")
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      const page = (data ?? []) as unknown as ParsedRow[];
+      all.push(...page);
+      if (page.length < PAGE) break;
+    }
+    return all;
+  }
+
   useEffect(() => {
     let alive = true;
+    let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+
     async function load() {
-      const [{ data: file }, { data: defs }, { data: prs }] = await Promise.all([
-        supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle(),
-        supabase.from("field_definitions" as any).select("field_key,label,data_type,display_order").eq("is_active", true).order("display_order"),
-        supabase.from("parsed_rows" as any).select(ROW_SELECT).eq("source_file_id", id).order("row_index").limit(500),
-      ]);
-      if (!alive) return;
-      setSf((file ?? null) as unknown as SourceFile);
-      setDefs((defs ?? []) as unknown as FieldDef[]);
-      setRows((prs ?? []) as unknown as ParsedRow[]);
-      setLoading(false);
+      try {
+        const [{ data: file }, { data: defs }, prs] = await Promise.all([
+          supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle(),
+          supabase.from("field_definitions" as any).select("field_key,label,data_type,display_order").eq("is_active", true).order("display_order"),
+          fetchAllRows(),
+        ]);
+        if (!alive) return;
+        setSf((file ?? null) as unknown as SourceFile);
+        setDefs((defs ?? []) as unknown as FieldDef[]);
+        setRows(prs);
+      } catch (e: any) {
+        if (alive) toast.error(e?.message ?? "Failed to load review data");
+      } finally {
+        if (alive) setLoading(false);
+      }
     }
     load();
+
+    // Debounce realtime fan-out: parsing can fire thousands of postgres_changes
+    // events in a few seconds. Coalesce into a single refetch.
+    function scheduleRowsRefetch() {
+      if (refetchTimer) return;
+      refetchTimer = setTimeout(async () => {
+        refetchTimer = null;
+        try {
+          const fresh = await fetchAllRows();
+          if (alive) setRows(fresh);
+        } catch {}
+      }, 800);
+    }
 
     const ch = supabase
       .channel(`review-${id}`)
@@ -80,15 +119,15 @@ function ReviewPage() {
         supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle()
           .then(({ data }) => { if (alive) setSf((data ?? null) as unknown as SourceFile); });
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "parsed_rows", filter: `source_file_id=eq.${id}` }, () => {
-        supabase.from("parsed_rows" as any)
-          .select(ROW_SELECT)
-          .eq("source_file_id", id).order("row_index").limit(500)
-          .then(({ data }) => { if (alive) setRows((data ?? []) as unknown as ParsedRow[]); });
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "parsed_rows", filter: `source_file_id=eq.${id}` }, scheduleRowsRefetch)
       .subscribe();
-    return () => { alive = false; supabase.removeChannel(ch); };
+    return () => {
+      alive = false;
+      if (refetchTimer) clearTimeout(refetchTimer);
+      supabase.removeChannel(ch);
+    };
   }, [id]);
+
 
 
   const visibleFields = useMemo(() => {
