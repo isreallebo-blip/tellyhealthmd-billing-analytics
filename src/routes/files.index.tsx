@@ -83,7 +83,7 @@ function StatusBadge({ status }: { status: SourceFile["status"] }) {
 }
 
 function FilesPage() {
-  const { profile } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
