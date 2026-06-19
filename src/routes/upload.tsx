@@ -196,11 +196,18 @@ function UploadPage() {
 
   async function submitAll() {
     if (queue.length === 0) return toast.error("Add at least one file first");
-    if (!profile) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      toast.error("You're not signed in. Please sign in again.");
+      return;
+    }
     setSubmitting(true);
+    setProgress("Preparing…");
+    // Yield so the spinner renders before any heavy parsing blocks the main thread.
+    await new Promise((r) => setTimeout(r, 0));
 
     const files = queue.slice();
-    const CONCURRENCY = Math.min(8, Math.max(3, files.length));
+    const CONCURRENCY = Math.min(4, Math.max(2, files.length));
     let nextIndex = 0;
     let done = 0;
     let firstId: string | null = null;
