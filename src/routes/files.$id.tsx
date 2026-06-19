@@ -254,7 +254,7 @@ function ReviewPage() {
         actions={
           <div className="flex gap-2">
             <Button variant="outline" asChild><Link to="/files"><ArrowLeft className="h-4 w-4 mr-2" />Back</Link></Button>
-            <Button variant="outline" onClick={reparse} disabled={busy !== null || sf.status === "parsing"}>
+            <Button variant="outline" onClick={reparse} disabled={busy !== null}>
               {busy === "reparse" || sf.status === "parsing" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
               Re-analyze
             </Button>
@@ -280,7 +280,7 @@ function ReviewPage() {
                   )}
                 </div>
                 <div className="text-muted-foreground mt-1">
-                  These source columns don't match any registered field — their values are dropped. Add the header as a synonym to an existing field (or create a new field), then click <span className="font-medium text-foreground">Re-parse</span>.
+                  These source columns don't match any registered field — their values are dropped. Add the header as a synonym to an existing field (or create a new field), then click <span className="font-medium text-foreground">Re-analyze</span>.
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {sf.unmapped_columns.map((c) => <Badge key={c} variant="outline" className="font-mono text-xs">{c}</Badge>)}
