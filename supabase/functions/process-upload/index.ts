@@ -324,6 +324,8 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
     // Wipe any prior parsed rows (re-parse path)
     await db.from("parsed_rows").delete().eq("source_file_id", sourceFileId);
 
+    // Build all batches first (CPU-only), then insert with bounded parallelism.
+    const batches: any[][] = [];
     for (let start = 0; start < rows.length; start += BATCH) {
       const batch = rows.slice(start, start + BATCH).map((r, idx) => {
         const data: Record<string, any> = {};
@@ -348,9 +350,21 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
           validation_errors: errs,
         };
       });
-      const { error } = await db.from("parsed_rows").insert(batch);
-      if (error) throw error;
+      batches.push(batch);
     }
+
+    let cursor = 0;
+    async function insertWorker() {
+      while (true) {
+        const i = cursor++;
+        if (i >= batches.length) return;
+        const { error } = await db.from("parsed_rows").insert(batches[i]);
+        if (error) throw error;
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(INSERT_CONCURRENCY, batches.length) }, insertWorker)
+    );
 
     // Flag duplicates against claims_raw + intra-file
     try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
