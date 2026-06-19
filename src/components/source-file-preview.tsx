@@ -111,6 +111,13 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
       </div>
     );
   }
+  if (textPreview !== null) {
+    return (
+      <div className="h-full overflow-auto p-4">
+        <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed text-foreground/90">{textPreview}</pre>
+      </div>
+    );
+  }
   if (!wb || !grid) return <div className="p-4 text-sm text-muted-foreground">No preview.</div>;
 
   const cols = grid[0]?.length ?? 0;
