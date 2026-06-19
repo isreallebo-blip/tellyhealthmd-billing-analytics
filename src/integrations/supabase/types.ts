@@ -382,10 +382,13 @@ export type Database = {
           confidence: Json
           created_at: string
           data: Json
+          duplicate_key: string | null
+          duplicate_of_source_file_id: string | null
           edited: boolean
           edited_at: string | null
           edited_by: string | null
           id: string
+          is_duplicate: boolean
           raw_data: Json | null
           row_index: number
           source_file_id: string
@@ -397,10 +400,13 @@ export type Database = {
           confidence?: Json
           created_at?: string
           data?: Json
+          duplicate_key?: string | null
+          duplicate_of_source_file_id?: string | null
           edited?: boolean
           edited_at?: string | null
           edited_by?: string | null
           id?: string
+          is_duplicate?: boolean
           raw_data?: Json | null
           row_index: number
           source_file_id: string
@@ -412,10 +418,13 @@ export type Database = {
           confidence?: Json
           created_at?: string
           data?: Json
+          duplicate_key?: string | null
+          duplicate_of_source_file_id?: string | null
           edited?: boolean
           edited_at?: string | null
           edited_by?: string | null
           id?: string
+          is_duplicate?: boolean
           raw_data?: Json | null
           row_index?: number
           source_file_id?: string
@@ -424,6 +433,13 @@ export type Database = {
           validation_errors?: Json
         }
         Relationships: [
+          {
+            foreignKeyName: "parsed_rows_duplicate_of_source_file_id_fkey"
+            columns: ["duplicate_of_source_file_id"]
+            isOneToOne: false
+            referencedRelation: "source_files"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "parsed_rows_source_file_id_fkey"
             columns: ["source_file_id"]
@@ -643,6 +659,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      flag_duplicate_parsed_rows: {
+        Args: { _source_file_id: string }
+        Returns: number
+      }
       get_dashboard_stats: {
         Args: {
           _categories?: string[]

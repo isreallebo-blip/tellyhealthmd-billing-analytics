@@ -217,6 +217,10 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
       if (error) throw error;
     }
 
+    // Flag duplicates against claims_raw + intra-file
+    try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
+    catch (e) { console.error("dedup flagging failed", e); }
+
     await db.from("source_files").update({
       status: "needs_review",
       row_count: rows.length,

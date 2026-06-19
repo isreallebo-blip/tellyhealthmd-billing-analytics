@@ -33,6 +33,8 @@ type ParsedRow = {
   confidence: Record<string, number>;
   validation_errors: Record<string, string>;
   edited: boolean;
+  is_duplicate: boolean;
+  duplicate_of_source_file_id: string | null;
 };
 
 function ReviewPage() {
@@ -45,13 +47,17 @@ function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"reparse" | "approve" | null>(null);
 
+  const [hideDuplicates, setHideDuplicates] = useState(false);
+
+  const ROW_SELECT = "id,row_index,source_row,data,confidence,validation_errors,edited,is_duplicate,duplicate_of_source_file_id";
+
   useEffect(() => {
     let alive = true;
     async function load() {
       const [{ data: file }, { data: defs }, { data: prs }] = await Promise.all([
         supabase.from("source_files" as any).select("*").eq("id", id).maybeSingle(),
         supabase.from("field_definitions" as any).select("field_key,label,data_type,display_order").eq("is_active", true).order("display_order"),
-        supabase.from("parsed_rows" as any).select("id,row_index,source_row,data,confidence,validation_errors,edited").eq("source_file_id", id).order("row_index").limit(500),
+        supabase.from("parsed_rows" as any).select(ROW_SELECT).eq("source_file_id", id).order("row_index").limit(500),
       ]);
       if (!alive) return;
       setSf((file ?? null) as unknown as SourceFile);
@@ -68,9 +74,8 @@ function ReviewPage() {
         setSf(r);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "parsed_rows", filter: `source_file_id=eq.${id}` }, () => {
-        // Refresh page of rows on bulk changes
         supabase.from("parsed_rows" as any)
-          .select("id,row_index,source_row,data,confidence,validation_errors,edited")
+          .select(ROW_SELECT)
           .eq("source_file_id", id).order("row_index").limit(500)
           .then(({ data }) => { if (alive) setRows((data ?? []) as unknown as ParsedRow[]); });
       })
@@ -121,7 +126,8 @@ function ReviewPage() {
       const text = await r.text();
       let data: any = null; try { data = text ? JSON.parse(text) : null; } catch {}
       if (!r.ok) throw new Error(data?.error ?? text ?? `Approve failed (${r.status})`);
-      toast.success(`Approved — ${data?.inserted ?? 0} rows added to claims (${data?.skipped ?? 0} skipped)`);
+      const dup = data?.duplicates_skipped ?? 0;
+      toast.success(`Approved — ${data?.inserted ?? 0} rows added${dup ? `, ${dup} duplicate${dup === 1 ? "" : "s"} skipped` : ""}${data?.skipped ? `, ${data.skipped} invalid skipped` : ""}`);
       navigate({ to: "/files" });
     } catch (e: any) {
       toast.error(e?.message ?? "Approve failed");
@@ -156,12 +162,14 @@ function ReviewPage() {
   if (!sf) return <div className="p-8 text-muted-foreground">File not found.</div>;
 
   const lowConfRows = rows.filter((r) => Object.values(r.confidence).some((c) => c < 0.7) || Object.keys(r.validation_errors).length > 0).length;
+  const dupRows = rows.filter((r) => r.is_duplicate).length;
+  const displayRows = hideDuplicates ? rows.filter((r) => !r.is_duplicate) : rows;
 
   return (
     <>
       <PageHeader
         title={sf.filename}
-        description={`${sf.row_count.toLocaleString()} rows · ${sf.detected_company ?? "no company detected"} · ${lowConfRows} row${lowConfRows === 1 ? "" : "s"} need attention`}
+        description={`${sf.row_count.toLocaleString()} rows · ${sf.detected_company ?? "no company detected"} · ${lowConfRows} need attention${dupRows ? ` · ${dupRows} duplicate${dupRows === 1 ? "" : "s"}` : ""}`}
         breadcrumbs={[{ label: "Files", to: "/files" }, { label: sf.filename }]}
         actions={
           <div className="flex gap-2">
@@ -224,22 +232,53 @@ function ReviewPage() {
             <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
               <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
                 <span className="font-medium text-foreground">Parsed rows</span>
-                <span>· first {rows.length.toLocaleString()} of {sf.row_count.toLocaleString()}</span>
+                <span>· showing {displayRows.length.toLocaleString()} of {rows.length.toLocaleString()} loaded ({sf.row_count.toLocaleString()} total)</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-400" /> low confidence</span>
-                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> validation error</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> error</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-muted-foreground" /> duplicate</span>
+                {dupRows > 0 && (
+                  <Button
+                    variant="ghost" size="sm" className="h-6 px-2 text-xs ml-auto"
+                    onClick={() => setHideDuplicates((v) => !v)}
+                  >
+                    {hideDuplicates ? "Show" : "Hide"} duplicates ({dupRows})
+                  </Button>
+                )}
               </div>
               <div className="overflow-auto flex-1 min-h-0">
                 <Table>
                   <TableHeader className="sticky top-0 bg-background z-10">
                     <TableRow>
                       <TableHead className="w-14 text-right text-xs">#</TableHead>
+                      <TableHead className="w-8"></TableHead>
                       {visibleFields.map((d) => <TableHead key={d.field_key} className="whitespace-nowrap">{d.label}</TableHead>)}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r) => (
-                      <TableRow key={r.id} className={r.edited ? "bg-primary/5" : ""}>
+                    {displayRows.map((r) => (
+                      <TableRow
+                        key={r.id}
+                        className={[
+                          r.edited ? "bg-primary/5" : "",
+                          r.is_duplicate ? "opacity-60 bg-muted/30" : "",
+                        ].join(" ")}
+                      >
                         <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{(r.source_row ?? r.row_index + 2)}</TableCell>
+                        <TableCell className="p-1">
+                          {r.is_duplicate && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] font-medium px-1.5 py-0 h-5"
+                              title={
+                                r.duplicate_of_source_file_id
+                                  ? "Already exists in a previously approved file — will be skipped on Approve."
+                                  : "Duplicate of an earlier row in this same file — will be skipped on Approve."
+                              }
+                            >
+                              DUP
+                            </Badge>
+                          )}
+                        </TableCell>
                         {visibleFields.map((d) => {
                           const value = r.data?.[d.field_key] ?? "";
                           const conf = r.confidence?.[d.field_key] ?? 1;
