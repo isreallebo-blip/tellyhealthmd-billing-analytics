@@ -354,6 +354,12 @@ export const uploadManager = {
     }));
     items.forEach((it, i) => fileRefs.set(it.id, files[i]));
     setState((s) => ({ ...s, items: [...s.items, ...items] }));
+    // Pre-create source_files placeholders so the queued files appear in the
+    // Files tab immediately — even before a concurrency slot frees up.
+    void Promise.all(items.map((it) => {
+      const f = fileRefs.get(it.id);
+      return f ? ensurePlaceholder(it, f).catch(() => null) : Promise.resolve(null);
+    }));
     pump();
     return items;
   },
