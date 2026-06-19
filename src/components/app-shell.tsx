@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { AppSidebar } from "@/components/app-sidebar";
+import { NotificationsBell } from "@/components/notifications-bell";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function AppShell({ children, adminOnly = false }: { children: ReactNode; adminOnly?: boolean }) {
@@ -65,7 +66,10 @@ export function PageHeader({
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight">{title}</h1>
           {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
         </div>
-        {actions && <div className="flex-shrink-0">{actions}</div>}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {actions}
+          <NotificationsBell />
+        </div>
       </div>
     </div>
   );

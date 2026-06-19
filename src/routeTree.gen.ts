@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as FilesRouteImport } from './routes/files'
 import { Route as ExportsRouteImport } from './routes/exports'
 import { Route as CptReferenceRouteImport } from './routes/cpt-reference'
@@ -26,6 +27,7 @@ import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminFieldsRouteImport } from './routes/admin.fields'
 import { Route as AdminCptRouteImport } from './routes/admin.cpt'
 import { Route as AdminAuditRouteImport } from './routes/admin.audit'
+import { Route as AdminAlertsRouteImport } from './routes/admin.alerts'
 
 const UploadRoute = UploadRouteImport.update({
   id: '/upload',
@@ -35,6 +37,11 @@ const UploadRoute = UploadRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotificationsRoute = NotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FilesRoute = FilesRouteImport.update({
@@ -112,6 +119,11 @@ const AdminAuditRoute = AdminAuditRouteImport.update({
   path: '/admin/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAlertsRoute = AdminAlertsRouteImport.update({
+  id: '/admin/alerts',
+  path: '/admin/alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -122,8 +134,10 @@ export interface FileRoutesByFullPath {
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
+  '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/admin/alerts': typeof AdminAlertsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
@@ -141,8 +155,10 @@ export interface FileRoutesByTo {
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
+  '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/admin/alerts': typeof AdminAlertsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
@@ -161,8 +177,10 @@ export interface FileRoutesById {
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
   '/files': typeof FilesRouteWithChildren
+  '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/admin/alerts': typeof AdminAlertsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
@@ -182,8 +200,10 @@ export interface FileRouteTypes {
     | '/cpt-reference'
     | '/exports'
     | '/files'
+    | '/notifications'
     | '/settings'
     | '/upload'
+    | '/admin/alerts'
     | '/admin/audit'
     | '/admin/cpt'
     | '/admin/fields'
@@ -201,8 +221,10 @@ export interface FileRouteTypes {
     | '/cpt-reference'
     | '/exports'
     | '/files'
+    | '/notifications'
     | '/settings'
     | '/upload'
+    | '/admin/alerts'
     | '/admin/audit'
     | '/admin/cpt'
     | '/admin/fields'
@@ -220,8 +242,10 @@ export interface FileRouteTypes {
     | '/cpt-reference'
     | '/exports'
     | '/files'
+    | '/notifications'
     | '/settings'
     | '/upload'
+    | '/admin/alerts'
     | '/admin/audit'
     | '/admin/cpt'
     | '/admin/fields'
@@ -240,8 +264,10 @@ export interface RootRouteChildren {
   CptReferenceRoute: typeof CptReferenceRoute
   ExportsRoute: typeof ExportsRoute
   FilesRoute: typeof FilesRouteWithChildren
+  NotificationsRoute: typeof NotificationsRoute
   SettingsRoute: typeof SettingsRoute
   UploadRoute: typeof UploadRoute
+  AdminAlertsRoute: typeof AdminAlertsRoute
   AdminAuditRoute: typeof AdminAuditRoute
   AdminCptRoute: typeof AdminCptRoute
   AdminFieldsRoute: typeof AdminFieldsRoute
@@ -264,6 +290,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notifications': {
+      id: '/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof NotificationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/files': {
@@ -371,6 +404,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAuditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/alerts': {
+      id: '/admin/alerts'
+      path: '/admin/alerts'
+      fullPath: '/admin/alerts'
+      preLoaderRoute: typeof AdminAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -393,8 +433,10 @@ const rootRouteChildren: RootRouteChildren = {
   CptReferenceRoute: CptReferenceRoute,
   ExportsRoute: ExportsRoute,
   FilesRoute: FilesRouteWithChildren,
+  NotificationsRoute: NotificationsRoute,
   SettingsRoute: SettingsRoute,
   UploadRoute: UploadRoute,
+  AdminAlertsRoute: AdminAlertsRoute,
   AdminAuditRoute: AdminAuditRoute,
   AdminCptRoute: AdminCptRoute,
   AdminFieldsRoute: AdminFieldsRoute,

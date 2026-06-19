@@ -1,7 +1,7 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
-  Upload, Sparkles, Brain, Loader2, FileText, Tags, Download, Layers, ShieldCheck,
+  Upload, Sparkles, Brain, Loader2, FileText, Tags, Download, Layers, ShieldCheck, Bell, BellRing,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -17,6 +17,7 @@ const buildMainItems = (isAdmin: boolean) => [
   { title: "Exports", url: "/exports", icon: Download },
   { title: "AI Insights", url: "/ai-insights", icon: Sparkles },
   { title: "AI Training", url: "/ai-training", icon: Brain },
+  { title: "Notifications", url: "/notifications", icon: Bell },
   { title: "CPT Reference", url: isAdmin ? "/admin/cpt" : "/cpt-reference", icon: BookOpen },
 ];
 
@@ -24,6 +25,7 @@ const adminItems = [
   { title: "User Management", url: "/admin/users", icon: Users },
   { title: "Field Registry", url: "/admin/fields", icon: Tags },
   { title: "Mapping Templates", url: "/admin/templates", icon: Layers },
+  { title: "Alert Rules", url: "/admin/alerts", icon: BellRing },
   { title: "Access Audit", url: "/admin/audit", icon: ShieldCheck },
 ];
 
