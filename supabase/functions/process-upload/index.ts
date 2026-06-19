@@ -372,8 +372,7 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
       while (true) {
         const i = cursor++;
         if (i >= batches.length) return;
-        const { error } = await db.from("parsed_rows").insert(batches[i]);
-        if (error) throw error;
+        await insertWithRetry(db, batches[i]);
       }
     }
     await Promise.all(
