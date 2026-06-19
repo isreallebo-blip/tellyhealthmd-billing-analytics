@@ -1,7 +1,7 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
-  Upload, Sparkles, Brain, Loader2, FileText,
+  Upload, Sparkles, Brain, Loader2, FileText, Tags,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
