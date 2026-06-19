@@ -33,6 +33,7 @@ type SourceFile = {
   uploaded_at: string;
   approved_at: string | null;
   error: string | null;
+  kind: "structured" | "unstructured";
 };
 
 function StatusBadge({ status }: { status: SourceFile["status"] }) {
