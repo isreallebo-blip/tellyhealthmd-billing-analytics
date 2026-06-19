@@ -104,6 +104,18 @@ function FilesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const uploadState = useSyncExternalStore(uploadManager.subscribe, uploadManager.getState, uploadManager.getState);
+  // Build map: sourceFileId -> { phase, percent } from in-progress uploads.
+  const uploadInfo: Record<string, { phase: "uploading"; percent: number | null }> = {};
+  for (const it of uploadState.items) {
+    if (!it.sourceFileId) continue;
+    if (it.status === "uploading" || it.status === "queued") {
+      const pct = it.totalRows && it.totalRows > 0 && typeof it.processedRows === "number"
+        ? Math.min(99, (it.processedRows / it.totalRows) * 100)
+        : null;
+      uploadInfo[it.sourceFileId] = { phase: "uploading", percent: pct };
+    }
+  }
 
   const allSelected = files.length > 0 && selected.size === files.length;
   const someSelected = selected.size > 0 && !allSelected;
