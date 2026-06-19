@@ -171,9 +171,14 @@ Deno.serve(async (req) => {
             while (true) {
               const idx = ci++;
               if (idx >= chunks.length) return;
-              const { error: iErr } = await db.from("claims_raw").insert(chunks[idx]);
+              const { data: upData, error: iErr } = await db
+                .from("claims_raw")
+                .upsert(chunks[idx], { onConflict: "acct,dos,cpt,company", ignoreDuplicates: true })
+                .select("id");
               if (iErr) throw iErr;
-              inserted += chunks[idx].length;
+              const insertedCount = upData?.length ?? 0;
+              inserted += insertedCount;
+              dupSkipped += chunks[idx].length - insertedCount;
             }
           }
           await Promise.all(
