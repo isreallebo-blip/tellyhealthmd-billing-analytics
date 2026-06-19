@@ -630,9 +630,13 @@ Deno.serve(async (req) => {
 
     let fileBytes: Uint8Array | null = null;
     if (file_b64) {
+      // Ticket 4: decode via a single Uint8Array+atob call instead of a
+      // per-byte loop. Scales cleanly if the embed cutoff is ever raised.
       const bin = atob(file_b64);
-      fileBytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) fileBytes[i] = bin.charCodeAt(i);
+      const len = bin.length;
+      const buf = new Uint8Array(len);
+      for (let i = 0; i < len; i++) buf[i] = bin.charCodeAt(i) & 0xff;
+      fileBytes = buf;
     }
 
     const { data: sf, error: sfErr } = await db.from("source_files").insert({
