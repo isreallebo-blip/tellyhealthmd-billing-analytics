@@ -313,9 +313,15 @@ function ReviewPage() {
               {busy === "reparse" || sf.status === "parsing" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
               Re-analyze
             </Button>
-            <Button onClick={approve} disabled={busy !== null || sf.status !== "needs_review"}>
+            {sf.status === "approved" && (
+              <Button variant="outline" onClick={unapproveAndReanalyze} disabled={busy !== null}>
+                {busy === "unapprove" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Undo2 className="h-4 w-4 mr-2" />}
+                Unapprove &amp; Re-analyze
+              </Button>
+            )}
+            <Button onClick={approve} disabled={busy !== null || (sf.status !== "needs_review" && sf.status !== "approved")}>
               {busy === "approve" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-              Approve &amp; Publish
+              {sf.status === "approved" ? "Re-publish" : "Approve & Publish"}
             </Button>
           </div>
         }
