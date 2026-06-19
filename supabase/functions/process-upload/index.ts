@@ -334,14 +334,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fire-and-forget background processing
-    // @ts-ignore - EdgeRuntime is available in Supabase Edge runtime
-    EdgeRuntime.waitUntil(processRows(job.id, userId, filename, rows));
+    // Prefer background processing when the runtime supports it. If not, run
+    // inline instead of throwing a 500 after the job row has already been made.
+    const processingPromise = processRows(job.id, userId, filename, rows);
+    const waitUntil = (globalThis as any).EdgeRuntime?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil(processingPromise);
+    } else {
+      await processingPromise;
+    }
 
     return new Response(JSON.stringify({ jobId: job.id }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
+    console.error("process-upload failed", err);
     return new Response(JSON.stringify({ error: err?.message ?? "Unexpected error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
