@@ -182,29 +182,24 @@ function FilesPage() {
   }
 
   async function refresh() {
-    console.log("[files] refresh: querying source_files");
     const { data, error } = await supabase
       .from("source_files" as any)
       .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
       .order("uploaded_at", { ascending: false })
       .limit(200);
     if (error) {
-      console.error("[files] refresh error:", error);
       toast.error(`Failed to load files: ${error.message}`);
-    } else {
-      console.log("[files] refresh: got", data?.length, "rows");
+      return;
     }
     setFiles((data ?? []) as unknown as SourceFile[]);
   }
 
   useEffect(() => {
-    console.log("[files] effect: authLoading=", authLoading, "user=", user?.id);
     if (authLoading) return;
     if (!user) { setLoading(false); return; }
     let alive = true;
     (async () => {
-      try { await refresh(); } catch (e) { console.error("[files] refresh threw", e); }
-      if (alive) setLoading(false);
+      try { await refresh(); } finally { if (alive) setLoading(false); }
     })();
 
     const ch = supabase
@@ -215,6 +210,7 @@ function FilesPage() {
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
   }, [authLoading, user?.id]);
+
 
 
   async function deleteFile(f: SourceFile) {
