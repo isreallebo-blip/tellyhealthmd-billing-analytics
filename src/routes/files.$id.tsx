@@ -162,12 +162,14 @@ function ReviewPage() {
   if (!sf) return <div className="p-8 text-muted-foreground">File not found.</div>;
 
   const lowConfRows = rows.filter((r) => Object.values(r.confidence).some((c) => c < 0.7) || Object.keys(r.validation_errors).length > 0).length;
+  const dupRows = rows.filter((r) => r.is_duplicate).length;
+  const displayRows = hideDuplicates ? rows.filter((r) => !r.is_duplicate) : rows;
 
   return (
     <>
       <PageHeader
         title={sf.filename}
-        description={`${sf.row_count.toLocaleString()} rows · ${sf.detected_company ?? "no company detected"} · ${lowConfRows} row${lowConfRows === 1 ? "" : "s"} need attention`}
+        description={`${sf.row_count.toLocaleString()} rows · ${sf.detected_company ?? "no company detected"} · ${lowConfRows} need attention${dupRows ? ` · ${dupRows} duplicate${dupRows === 1 ? "" : "s"}` : ""}`}
         breadcrumbs={[{ label: "Files", to: "/files" }, { label: sf.filename }]}
         actions={
           <div className="flex gap-2">
