@@ -126,7 +126,8 @@ function ReviewPage() {
       const text = await r.text();
       let data: any = null; try { data = text ? JSON.parse(text) : null; } catch {}
       if (!r.ok) throw new Error(data?.error ?? text ?? `Approve failed (${r.status})`);
-      toast.success(`Approved — ${data?.inserted ?? 0} rows added to claims (${data?.skipped ?? 0} skipped)`);
+      const dup = data?.duplicates_skipped ?? 0;
+      toast.success(`Approved — ${data?.inserted ?? 0} rows added${dup ? `, ${dup} duplicate${dup === 1 ? "" : "s"} skipped` : ""}${data?.skipped ? `, ${data.skipped} invalid skipped` : ""}`);
       navigate({ to: "/files" });
     } catch (e: any) {
       toast.error(e?.message ?? "Approve failed");
