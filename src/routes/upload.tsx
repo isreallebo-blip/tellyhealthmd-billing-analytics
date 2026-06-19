@@ -170,10 +170,23 @@ function UploadPage() {
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      throw new Error("You're not signed in. Please sign in and try again.");
+    }
     const { data, error } = await supabase.functions.invoke("process-upload", {
       body: { filename: file.name, rows },
     });
-    if (error) throw new Error(error.message ?? "Failed to start upload");
+    if (error) {
+      // Try to surface the underlying response body (edge functions return JSON { error })
+      let detail = error.message ?? "Failed to start upload";
+      try {
+        const ctx: any = (error as any).context;
+        if (ctx?.json) detail = (await ctx.json())?.error ?? detail;
+        else if (ctx?.text) detail = (await ctx.text()) ?? detail;
+      } catch { /* ignore */ }
+      throw new Error(detail);
+    }
     toast.success(`${file.name} queued — processing ${rows.length.toLocaleString()} rows in the background.`);
     if (data?.jobId) {
       // Optimistically add to jobs so the card shows immediately
