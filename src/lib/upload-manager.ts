@@ -19,6 +19,8 @@ export type UploadItem = {
   status: UploadItemStatus;
   error?: string;
   sourceFileId?: string | null;
+  processedRows?: number;
+  totalRows?: number;
   startedAt?: number;
   finishedAt?: number;
 };
@@ -33,8 +35,9 @@ const EMBED_BYTES_MAX = 6 * 1024 * 1024;
 // block the rest of the queue. Tuned against typical edge-function /
 // connection-pool limits — raise cautiously.
 const CONCURRENCY = 4;
-const STRUCTURED_CHUNK_ROWS = 1000;
+const STRUCTURED_CHUNK_ROWS = 500;
 const POST_UPLOAD_TIMEOUT_MS = 180_000;
+const POST_UPLOAD_ATTEMPTS = 4;
 
 // Ticket 3: Track in-flight AbortControllers per upload item so the UI can cancel.
 const inflightControllers = new Map<string, AbortController>();
@@ -68,6 +71,10 @@ function fileToBase64(file: Blob): Promise<string> {
     r.onerror = () => reject(r.error ?? new Error("read failed"));
     r.readAsDataURL(file);
   });
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function sheetToRows(XLSX: typeof import("xlsx"), sheet: any): Record<string, any>[] {
@@ -139,31 +146,57 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
   const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   const postUpload = async (body: Record<string, any>) => {
-    // Compose the per-request timeout signal with the user-cancel signal
-    // so either one aborts the in-flight fetch.
-    const controller = new AbortController();
-    const onCancel = () => controller.abort(cancelSignal.reason ?? new DOMException("Cancelled", "AbortError"));
-    if (cancelSignal.aborted) onCancel();
-    else cancelSignal.addEventListener("abort", onCancel, { once: true });
-    const timeout = window.setTimeout(() => controller.abort(), POST_UPLOAD_TIMEOUT_MS);
-    const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        apikey: publishableKey,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    }).finally(() => {
-      window.clearTimeout(timeout);
-      cancelSignal.removeEventListener("abort", onCancel);
-    });
-    const text = await response.text();
-    let data: any = null;
-    try { data = text ? JSON.parse(text) : null; } catch {}
-    if (!response.ok) throw new Error(data?.error ?? text ?? `Upload failed (${response.status})`);
-    return data as { source_file_id?: string | null };
+    let lastError: any = null;
+    for (let attempt = 1; attempt <= POST_UPLOAD_ATTEMPTS; attempt++) {
+      let timedOut = false;
+      const controller = new AbortController();
+      const onCancel = () => controller.abort(cancelSignal.reason ?? new DOMException("Cancelled", "AbortError"));
+      if (cancelSignal.aborted) onCancel();
+      else cancelSignal.addEventListener("abort", onCancel, { once: true });
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort(new DOMException("Upload request timed out", "TimeoutError"));
+      }, POST_UPLOAD_TIMEOUT_MS);
+      try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            apikey: publishableKey,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const text = await response.text();
+        let data: any = null;
+        try { data = text ? JSON.parse(text) : null; } catch {}
+        if (response.ok) return data as { source_file_id?: string | null };
+
+        const retryable = [408, 429, 500, 502, 503, 504].includes(response.status);
+        lastError = new Error(data?.error ?? text ?? `Upload failed (${response.status})`);
+        if (retryable && attempt < POST_UPLOAD_ATTEMPTS) {
+          await wait(700 * attempt);
+          continue;
+        }
+        throw lastError;
+      } catch (e: any) {
+        if (cancelSignal.aborted) throw e;
+        lastError = timedOut
+          ? new Error("Upload request timed out. Retrying the same rows safely…")
+          : e;
+        const transient = timedOut || e?.name === "TimeoutError" || e?.name === "AbortError" || /fetch|network|timeout|failed/i.test(e?.message ?? "");
+        if (transient && attempt < POST_UPLOAD_ATTEMPTS) {
+          await wait(700 * attempt);
+          continue;
+        }
+        throw timedOut ? new Error("Upload request timed out. Click Re-analyze to restart safely.") : e;
+      } finally {
+        window.clearTimeout(timeout);
+        cancelSignal.removeEventListener("abort", onCancel);
+      }
+    }
+    throw lastError ?? new Error("Upload failed");
   };
 
   if (kind === "structured") {
@@ -176,7 +209,7 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
       Object.keys(row ?? {}).forEach((key) => set.add(key));
       return set;
     }, new Set<string>()));
-    let sourceFileId: string | null = null;
+    let sourceFileId: string | null = crypto.randomUUID();
     try {
       for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
         const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
@@ -195,7 +228,7 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
         });
         sourceFileId = data.source_file_id ?? sourceFileId;
         if (!sourceFileId) throw new Error("Upload did not create a file record");
-        patchItem(item.id, { sourceFileId });
+        patchItem(item.id, { sourceFileId, processedRows: Math.min(start + chunk.length, rows.length), totalRows: rows.length });
         if (last) break;
       }
     } catch (e: any) {
