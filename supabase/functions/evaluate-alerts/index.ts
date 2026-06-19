@@ -37,7 +37,12 @@ function getServiceRoleKey(): string | null {
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEY")),
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEYS")),
   ];
-  return c.find((k) => jwtRole(k) === "service_role") ?? null;
+  return (
+    c.find((k) => jwtRole(k) === "service_role") ??
+    c.find((k) => k.startsWith("sb_secret_")) ??
+    c[0] ??
+    null
+  );
 }
 
 Deno.serve(async (req) => {
