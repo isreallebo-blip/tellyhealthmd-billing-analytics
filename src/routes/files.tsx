@@ -75,14 +75,13 @@ function FilesPage() {
 
     const ch = supabase
       .channel("source-files-list")
-      .on("postgres_changes", { event: "*", schema: "public", table: "source_files" }, (payload) => {
-        const row = (payload.new ?? payload.old) as SourceFile;
-        setFiles((prev) => {
-          const map = new Map(prev.map((f) => [f.id, f]));
-          if (payload.eventType === "DELETE") map.delete(row.id);
-          else map.set(row.id, row);
-          return Array.from(map.values()).sort((a, b) => (a.uploaded_at < b.uploaded_at ? 1 : -1));
-        });
+      .on("postgres_changes", { event: "*", schema: "public", table: "source_files" }, () => {
+        supabase
+          .from("source_files" as any)
+          .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
+          .order("uploaded_at", { ascending: false })
+          .limit(200)
+          .then(({ data }) => { if (alive) setFiles((data ?? []) as unknown as SourceFile[]); });
       })
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
