@@ -547,11 +547,7 @@ Deno.serve(async (req) => {
       await insertRowsChunk(db, source_file_id!, rows ?? [], (defs ?? []) as FieldDef[], Number(start_index ?? 0), allowed.column_mapping ?? {});
       await db.from("source_files").update({ row_count: total_rows ?? rows?.length ?? 0, status: "parsing", error: null }).eq("id", source_file_id);
       if (is_last_chunk) {
-        const finalize = (async () => {
-          try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: source_file_id }); }
-          catch (e) { console.error("dedup flagging failed", e); }
-          await db.from("source_files").update({ status: "needs_review", row_count: total_rows ?? rows?.length ?? 0 }).eq("id", source_file_id);
-        })();
+        const finalize = finalizeStructuredParse(db, source_file_id!, total_rows ?? rows?.length ?? 0);
         const er = (globalThis as any).EdgeRuntime;
         if (typeof er?.waitUntil === "function") er.waitUntil(finalize);
         else await finalize;
@@ -594,6 +590,12 @@ Deno.serve(async (req) => {
         mapping_template_id: prepared.mappingTemplateId,
       }).eq("id", sf.id);
       await insertRowsChunk(db, sf.id, rows ?? [], (defs ?? []) as FieldDef[], Number(start_index ?? 0), prepared.mapping);
+      if (is_last_chunk) {
+        const finalize = finalizeStructuredParse(db, sf.id, total_rows ?? rows?.length ?? 0);
+        const er = (globalThis as any).EdgeRuntime;
+        if (typeof er?.waitUntil === "function") er.waitUntil(finalize);
+        else await finalize;
+      }
       return new Response(JSON.stringify({ source_file_id: sf.id }), {
         status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
