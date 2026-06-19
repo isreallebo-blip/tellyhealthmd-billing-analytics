@@ -918,6 +918,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      download_export_job: {
+        Args: { _job_id: string }
+        Returns: {
+          file_bytes: string
+          filename: string
+        }[]
+      }
       evaluate_alert_rules: { Args: never; Returns: Json }
       flag_duplicate_parsed_rows: {
         Args: { _source_file_id: string }
