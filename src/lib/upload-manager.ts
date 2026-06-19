@@ -124,12 +124,41 @@ function sheetToRows(XLSX: typeof import("xlsx"), sheet: any): Record<string, an
   return out;
 }
 
+async function ensurePlaceholder(item: UploadItem, file: File): Promise<string | null> {
+  // If the placeholder was already created (by enqueue or a previous attempt),
+  // reuse its id so the row in the Files tab stays the same record.
+  const current = state.items.find((x) => x.id === item.id);
+  if (current?.sourceFileId) return current.sourceFileId;
+  const { detectKind } = await import("@/lib/file-kind");
+  const kind = detectKind(file.name);
+  const { data: userData } = await supabase.auth.getUser();
+  const uid = userData.user?.id;
+  if (!uid) return null;
+  const { data, error } = await supabase
+    .from("source_files" as any)
+    .insert({
+      uploaded_by: uid,
+      filename: file.name,
+      mime: file.type || null,
+      size_bytes: file.size,
+      kind,
+      status: "queued",
+    } as any)
+    .select("id")
+    .single();
+  if (error || !data) return null;
+  const id = (data as any).id as string;
+  patchItem(item.id, { sourceFileId: id });
+  return id;
+}
+
 async function processOne(item: UploadItem, file: File, cancelSignal: AbortSignal) {
   patchItem(item.id, { status: "uploading", startedAt: Date.now() });
   // Dynamically import heavy libs so the progress dock doesn't ship them
   // on every page load.
   const { detectKind } = await import("@/lib/file-kind");
   const { extractUnstructuredText } = await import("@/lib/file-extract");
+
   const kind = detectKind(file.name);
   const embedBytes = file.size <= EMBED_BYTES_MAX;
   const payload: Record<string, any> = {
