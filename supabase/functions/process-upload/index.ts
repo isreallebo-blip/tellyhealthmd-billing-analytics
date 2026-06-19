@@ -575,7 +575,7 @@ Deno.serve(async (req) => {
       is_last_chunk?: boolean;
     };
     const fileKind: "structured" | "unstructured" = kind === "unstructured" ? "unstructured" : "structured";
-    if (upload_mode === "append_structured" || upload_mode === "restart_structured") {
+    if (upload_mode === "append_structured") {
       if (!source_file_id || !Array.isArray(rows)) {
         return new Response(JSON.stringify({ error: "source_file_id and rows[] required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
