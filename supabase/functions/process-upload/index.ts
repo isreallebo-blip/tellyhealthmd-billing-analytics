@@ -78,7 +78,7 @@ async function processRows(jobId: string, userId: string, filename: string, rows
   try {
     const [{ data: cptRef }, { data: overrides }] = await Promise.all([
       admin.from("cpt_reference").select("cpt_code,service_category,billing_type"),
-      admin.from("cpt_insurance_overrides").select("cpt_code,insurance_code,override_billing_type"),
+      admin.from("cpt_insurance_overrides").select("cpt_code,insurance_code,billing_type_override"),
     ]);
     const cptMap = new Map<string, { service_category: string | null; billing_type: string | null }>();
     cptRef?.forEach((r: any) =>
@@ -86,7 +86,7 @@ async function processRows(jobId: string, userId: string, filename: string, rows
     );
     const overrideMap = new Map<string, string>();
     overrides?.forEach((r: any) =>
-      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.override_billing_type)
+      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
     );
 
     // ── Phase 1: normalize every row in memory ──
