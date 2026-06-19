@@ -21,7 +21,7 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
   const [textPreview, setTextPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadStructuredPreview, setLoadStructuredPreview] = useState(false);
+  const [loadStructuredPreview, setLoadStructuredPreview] = useState(true);
 
   const isStructured = /\.(xlsx|xls|csv)$/i.test(filename);
 
