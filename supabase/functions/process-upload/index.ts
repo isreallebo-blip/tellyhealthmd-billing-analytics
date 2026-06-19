@@ -490,15 +490,27 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { filename, mime, size_bytes, file_b64, rows, text, kind } = body as {
+    const { upload_mode, source_file_id, filename, mime, size_bytes, file_b64, rows, text, kind, headers, start_index, total_rows, is_last_chunk } = body as {
+      upload_mode?: "start_structured" | "append_structured";
+      source_file_id?: string;
       filename: string; mime?: string; size_bytes?: number;
       file_b64?: string;
       rows?: Row[];
       text?: string;
       kind?: "structured" | "unstructured";
+      headers?: string[];
+      start_index?: number;
+      total_rows?: number;
+      is_last_chunk?: boolean;
     };
     const fileKind: "structured" | "unstructured" = kind === "unstructured" ? "unstructured" : "structured";
-    if (!filename) {
+    if (upload_mode === "append_structured") {
+      if (!source_file_id || !Array.isArray(rows)) {
+        return new Response(JSON.stringify({ error: "source_file_id and rows[] required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else if (!filename) {
       return new Response(JSON.stringify({ error: "filename required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -521,6 +533,24 @@ Deno.serve(async (req) => {
       .eq("is_active", true);
     if (defsErr) throw defsErr;
 
+    if (upload_mode === "append_structured") {
+      const { data: allowed } = await userClient.from("source_files").select("id,column_mapping").eq("id", source_file_id).maybeSingle();
+      if (!allowed) return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await insertRowsChunk(db, source_file_id!, rows ?? [], (defs ?? []) as FieldDef[], Number(start_index ?? 0), allowed.column_mapping ?? {});
+      await db.from("source_files").update({ row_count: total_rows ?? rows?.length ?? 0, status: "parsing", error: null }).eq("id", source_file_id);
+      if (is_last_chunk) {
+        const finalize = (async () => {
+          try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: source_file_id }); }
+          catch (e) { console.error("dedup flagging failed", e); }
+          await db.from("source_files").update({ status: "needs_review", row_count: total_rows ?? rows?.length ?? 0 }).eq("id", source_file_id);
+        })();
+        const er = (globalThis as any).EdgeRuntime;
+        if (typeof er?.waitUntil === "function") er.waitUntil(finalize);
+        else await finalize;
+      }
+      return new Response(JSON.stringify({ source_file_id }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     let fileBytes: Uint8Array | null = null;
     if (file_b64) {
       const bin = atob(file_b64);
@@ -541,6 +571,23 @@ Deno.serve(async (req) => {
     if (sfErr || !sf) {
       return new Response(JSON.stringify({ error: sfErr?.message ?? "Failed to record file" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (upload_mode === "start_structured") {
+      const prepared = await prepareStructuredMapping(db, rows ?? [], (defs ?? []) as FieldDef[], { headers, filename });
+      await db.from("source_files").update({
+        status: "parsing",
+        error: null,
+        row_count: total_rows ?? rows?.length ?? 0,
+        column_mapping: prepared.mapping,
+        unmapped_columns: prepared.unmapped,
+        detected_company: prepared.detectedCompany,
+        mapping_template_id: prepared.mappingTemplateId,
+      }).eq("id", sf.id);
+      await insertRowsChunk(db, sf.id, rows ?? [], (defs ?? []) as FieldDef[], Number(start_index ?? 0), prepared.mapping);
+      return new Response(JSON.stringify({ source_file_id: sf.id }), {
+        status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
