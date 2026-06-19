@@ -224,11 +224,48 @@ function ReviewPage() {
       const text = await r.text();
       let data: any = null; try { data = text ? JSON.parse(text) : null; } catch {}
       if (!r.ok) throw new Error(data?.error ?? text ?? `Approve failed (${r.status})`);
-      const dup = data?.duplicates_skipped ?? 0;
-      toast.success(`Approved — ${data?.inserted ?? 0} rows added${dup ? `, ${dup} duplicate${dup === 1 ? "" : "s"} skipped` : ""}${data?.skipped ? `, ${data.skipped} invalid skipped` : ""}`);
+      // Edge function publishes in the background; navigate immediately so the
+      // user isn't blocked on the heavy claims_raw rebuild.
+      toast.success("Publishing in background — you'll see it as Approved shortly.");
       navigate({ to: "/files" });
     } catch (e: any) {
       toast.error(e?.message ?? "Approve failed");
+    } finally { setBusy(null); }
+  }
+
+  async function unapproveAndReanalyze() {
+    if (!sf) return;
+    setBusy("unapprove");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}`, apikey: key };
+      const r1 = await fetch(`${url}/functions/v1/unapprove-source-file`, {
+        method: "POST", headers, body: JSON.stringify({ source_file_id: id }),
+      });
+      const t1 = await r1.text();
+      if (!r1.ok) {
+        let msg = t1; try { msg = JSON.parse(t1)?.error ?? t1; } catch {}
+        throw new Error(msg || `Unapprove failed (${r1.status})`);
+      }
+      // Kick a fresh re-parse so the review starts from the latest field rules.
+      const r2 = await fetch(`${url}/functions/v1/reparse-source-file`, {
+        method: "POST", headers, body: JSON.stringify({ source_file_id: id }),
+      });
+      if (!r2.ok) {
+        // Unapprove already succeeded — surface the reparse error but keep status.
+        const t2 = await r2.text();
+        let msg = t2; try { msg = JSON.parse(t2)?.error ?? t2; } catch {}
+        toast.error(`Unapproved, but re-analyze failed: ${msg || r2.status}`);
+      } else {
+        toast.success("Unapproved — re-analyzing in the background…");
+      }
+      // Optimistically reflect the new status while the background work runs.
+      setSf((prev) => (prev ? { ...prev, status: "parsing" } : prev));
+    } catch (e: any) {
+      toast.error(e?.message ?? "Unapprove failed");
     } finally { setBusy(null); }
   }
 
