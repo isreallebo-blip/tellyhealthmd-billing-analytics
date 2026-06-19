@@ -240,7 +240,7 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
     }, new Set<string>()));
     let sourceFileId: string | null = (await ensurePlaceholder(item, file)) ?? crypto.randomUUID();
     patchItem(item.id, { sourceFileId });
-
+    try {
       for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
         const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
         const first = start === 0;
@@ -282,8 +282,12 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
     payload.text = text;
     if (b64) payload.file_b64 = b64;
   }
+  // Reuse the placeholder source_files row created at enqueue so the file
+  // appears in the Files tab immediately, even for unstructured uploads.
+  const placeholderId = await ensurePlaceholder(item, file);
+  if (placeholderId) payload.source_file_id = placeholderId;
   const data = await postUpload(payload);
-  return (data?.source_file_id ?? null) as string | null;
+  return (data?.source_file_id ?? placeholderId ?? null) as string | null;
 }
 
 async function pump() {
