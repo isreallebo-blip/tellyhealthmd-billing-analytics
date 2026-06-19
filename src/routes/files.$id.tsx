@@ -51,6 +51,7 @@ function ReviewPage() {
   const [hideDuplicates, setHideDuplicates] = useState(false);
 
   const ROW_SELECT = "id,row_index,source_row,data,confidence,validation_errors,edited,is_duplicate,duplicate_of_source_file_id";
+  const SF_SELECT = "id,filename,status,row_count,detected_company,column_mapping,unmapped_columns,error";
 
   useEffect(() => {
     logPhiAccess({ action: "view_source_file", target_table: "source_files", target_id: id, source_file_id: id });
@@ -60,7 +61,7 @@ function ReviewPage() {
     let alive = true;
     async function load() {
       const [{ data: file }, { data: defs }, { data: prs }] = await Promise.all([
-        supabase.from("source_files" as any).select("*").eq("id", id).maybeSingle(),
+        supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle(),
         supabase.from("field_definitions" as any).select("field_key,label,data_type,display_order").eq("is_active", true).order("display_order"),
         supabase.from("parsed_rows" as any).select(ROW_SELECT).eq("source_file_id", id).order("row_index").limit(500),
       ]);
@@ -74,9 +75,9 @@ function ReviewPage() {
 
     const ch = supabase
       .channel(`review-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "source_files", filter: `id=eq.${id}` }, (p) => {
-        const r = (p.new ?? p.old) as SourceFile;
-        setSf(r);
+      .on("postgres_changes", { event: "*", schema: "public", table: "source_files", filter: `id=eq.${id}` }, () => {
+        supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle()
+          .then(({ data }) => { if (alive) setSf((data ?? null) as unknown as SourceFile); });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "parsed_rows", filter: `source_file_id=eq.${id}` }, () => {
         supabase.from("parsed_rows" as any)
@@ -87,6 +88,7 @@ function ReviewPage() {
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
   }, [id]);
+
 
   const visibleFields = useMemo(() => {
     if (!sf?.column_mapping) return defs;
