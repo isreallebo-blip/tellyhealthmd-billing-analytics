@@ -131,6 +131,7 @@ export type Database = {
           pt_name: string | null
           revenue: number | null
           service_category: string | null
+          source_file_id: string | null
           upload_id: string | null
           uploaded_at: string
           visit_type: string | null
@@ -155,6 +156,7 @@ export type Database = {
           pt_name?: string | null
           revenue?: number | null
           service_category?: string | null
+          source_file_id?: string | null
           upload_id?: string | null
           uploaded_at?: string
           visit_type?: string | null
@@ -179,6 +181,7 @@ export type Database = {
           pt_name?: string | null
           revenue?: number | null
           service_category?: string | null
+          source_file_id?: string | null
           upload_id?: string | null
           uploaded_at?: string
           visit_type?: string | null
@@ -189,6 +192,13 @@ export type Database = {
             columns: ["last_updated_upload_id"]
             isOneToOne: false
             referencedRelation: "upload_history"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "claims_raw_source_file_id_fkey"
+            columns: ["source_file_id"]
+            isOneToOne: false
+            referencedRelation: "source_files"
             referencedColumns: ["id"]
           },
           {
@@ -280,6 +290,149 @@ export type Database = {
         }
         Relationships: []
       }
+      field_definitions: {
+        Row: {
+          created_at: string
+          data_type: string
+          display_order: number
+          field_key: string
+          id: string
+          is_active: boolean
+          label: string
+          synonyms: string[]
+          updated_at: string
+          validation_regex: string | null
+        }
+        Insert: {
+          created_at?: string
+          data_type: string
+          display_order?: number
+          field_key: string
+          id?: string
+          is_active?: boolean
+          label: string
+          synonyms?: string[]
+          updated_at?: string
+          validation_regex?: string | null
+        }
+        Update: {
+          created_at?: string
+          data_type?: string
+          display_order?: number
+          field_key?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          synonyms?: string[]
+          updated_at?: string
+          validation_regex?: string | null
+        }
+        Relationships: []
+      }
+      parsed_row_edits: {
+        Row: {
+          edited_at: string
+          edited_by: string
+          field_key: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          parsed_row_id: string
+          source_file_id: string
+        }
+        Insert: {
+          edited_at?: string
+          edited_by: string
+          field_key: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          parsed_row_id: string
+          source_file_id: string
+        }
+        Update: {
+          edited_at?: string
+          edited_by?: string
+          field_key?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          parsed_row_id?: string
+          source_file_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parsed_row_edits_parsed_row_id_fkey"
+            columns: ["parsed_row_id"]
+            isOneToOne: false
+            referencedRelation: "parsed_rows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parsed_row_edits_source_file_id_fkey"
+            columns: ["source_file_id"]
+            isOneToOne: false
+            referencedRelation: "source_files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parsed_rows: {
+        Row: {
+          confidence: Json
+          created_at: string
+          data: Json
+          edited: boolean
+          edited_at: string | null
+          edited_by: string | null
+          id: string
+          raw_data: Json | null
+          row_index: number
+          source_file_id: string
+          source_row: number | null
+          source_sheet: string | null
+          validation_errors: Json
+        }
+        Insert: {
+          confidence?: Json
+          created_at?: string
+          data?: Json
+          edited?: boolean
+          edited_at?: string | null
+          edited_by?: string | null
+          id?: string
+          raw_data?: Json | null
+          row_index: number
+          source_file_id: string
+          source_row?: number | null
+          source_sheet?: string | null
+          validation_errors?: Json
+        }
+        Update: {
+          confidence?: Json
+          created_at?: string
+          data?: Json
+          edited?: boolean
+          edited_at?: string | null
+          edited_by?: string | null
+          id?: string
+          raw_data?: Json | null
+          row_index?: number
+          source_file_id?: string
+          source_row?: number | null
+          source_sheet?: string | null
+          validation_errors?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parsed_rows_source_file_id_fkey"
+            columns: ["source_file_id"]
+            isOneToOne: false
+            referencedRelation: "source_files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -304,6 +457,69 @@ export type Database = {
           id?: string
           is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: []
+      }
+      source_files: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          column_mapping: Json | null
+          detected_company: string | null
+          error: string | null
+          file_bytes: string | null
+          filename: string
+          header_row: number | null
+          id: string
+          mime: string | null
+          row_count: number
+          sha256: string | null
+          size_bytes: number
+          status: string
+          unmapped_columns: Json | null
+          updated_at: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          column_mapping?: Json | null
+          detected_company?: string | null
+          error?: string | null
+          file_bytes?: string | null
+          filename: string
+          header_row?: number | null
+          id?: string
+          mime?: string | null
+          row_count?: number
+          sha256?: string | null
+          size_bytes?: number
+          status?: string
+          unmapped_columns?: Json | null
+          updated_at?: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          column_mapping?: Json | null
+          detected_company?: string | null
+          error?: string | null
+          file_bytes?: string | null
+          filename?: string
+          header_row?: number | null
+          id?: string
+          mime?: string | null
+          row_count?: number
+          sha256?: string | null
+          size_bytes?: number
+          status?: string
+          unmapped_columns?: Json | null
+          updated_at?: string
+          uploaded_at?: string
+          uploaded_by?: string
         }
         Relationships: []
       }
