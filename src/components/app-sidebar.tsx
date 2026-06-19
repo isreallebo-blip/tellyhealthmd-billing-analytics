@@ -46,7 +46,7 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
     try {
       uploadManager.cancelAll();
       void supabase.removeAllChannels();
-      const signOutPromise = supabase.auth.signOut();
+      const signOutPromise = supabase.auth.signOut().catch(() => null);
       const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 1500));
       await Promise.race([signOutPromise, timeoutPromise]);
       await supabase.auth.signOut({ scope: "local" });
