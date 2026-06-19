@@ -124,12 +124,41 @@ function sheetToRows(XLSX: typeof import("xlsx"), sheet: any): Record<string, an
   return out;
 }
 
+async function ensurePlaceholder(item: UploadItem, file: File): Promise<string | null> {
+  // If the placeholder was already created (by enqueue or a previous attempt),
+  // reuse its id so the row in the Files tab stays the same record.
+  const current = state.items.find((x) => x.id === item.id);
+  if (current?.sourceFileId) return current.sourceFileId;
+  const { detectKind } = await import("@/lib/file-kind");
+  const kind = detectKind(file.name);
+  const { data: userData } = await supabase.auth.getUser();
+  const uid = userData.user?.id;
+  if (!uid) return null;
+  const { data, error } = await supabase
+    .from("source_files" as any)
+    .insert({
+      uploaded_by: uid,
+      filename: file.name,
+      mime: file.type || null,
+      size_bytes: file.size,
+      kind,
+      status: "queued",
+    } as any)
+    .select("id")
+    .single();
+  if (error || !data) return null;
+  const id = (data as any).id as string;
+  patchItem(item.id, { sourceFileId: id });
+  return id;
+}
+
 async function processOne(item: UploadItem, file: File, cancelSignal: AbortSignal) {
   patchItem(item.id, { status: "uploading", startedAt: Date.now() });
   // Dynamically import heavy libs so the progress dock doesn't ship them
   // on every page load.
   const { detectKind } = await import("@/lib/file-kind");
   const { extractUnstructuredText } = await import("@/lib/file-extract");
+
   const kind = detectKind(file.name);
   const embedBytes = file.size <= EMBED_BYTES_MAX;
   const payload: Record<string, any> = {
@@ -209,7 +238,8 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
       Object.keys(row ?? {}).forEach((key) => set.add(key));
       return set;
     }, new Set<string>()));
-    let sourceFileId: string | null = crypto.randomUUID();
+    let sourceFileId: string | null = (await ensurePlaceholder(item, file)) ?? crypto.randomUUID();
+    patchItem(item.id, { sourceFileId });
     try {
       for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
         const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
@@ -252,8 +282,12 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
     payload.text = text;
     if (b64) payload.file_b64 = b64;
   }
+  // Reuse the placeholder source_files row created at enqueue so the file
+  // appears in the Files tab immediately, even for unstructured uploads.
+  const placeholderId = await ensurePlaceholder(item, file);
+  if (placeholderId) payload.source_file_id = placeholderId;
   const data = await postUpload(payload);
-  return (data?.source_file_id ?? null) as string | null;
+  return (data?.source_file_id ?? placeholderId ?? null) as string | null;
 }
 
 async function pump() {
@@ -320,6 +354,12 @@ export const uploadManager = {
     }));
     items.forEach((it, i) => fileRefs.set(it.id, files[i]));
     setState((s) => ({ ...s, items: [...s.items, ...items] }));
+    // Pre-create source_files placeholders so the queued files appear in the
+    // Files tab immediately — even before a concurrency slot frees up.
+    void Promise.all(items.map((it) => {
+      const f = fileRefs.get(it.id);
+      return f ? ensurePlaceholder(it, f).catch(() => null) : Promise.resolve(null);
+    }));
     pump();
     return items;
   },
