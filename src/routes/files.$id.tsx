@@ -237,7 +237,7 @@ function ReviewPage() {
     });
   }
 
-  if (loading) return <div className="p-8 text-muted-foreground">Loading…</div>;
+  if (loadingMeta) return <div className="p-8 text-muted-foreground">Loading…</div>;
   if (!sf) return <div className="p-8 text-muted-foreground">File not found.</div>;
 
   const lowConfRows = rows.filter((r) => Object.values(r.confidence).some((c) => c < 0.7) || Object.keys(r.validation_errors).length > 0).length;
