@@ -290,6 +290,48 @@ export type Database = {
         }
         Relationships: []
       }
+      export_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          file_bytes: string | null
+          filename: string | null
+          filters: Json
+          id: string
+          name: string | null
+          requested_by: string
+          row_count: number | null
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          file_bytes?: string | null
+          filename?: string | null
+          filters?: Json
+          id?: string
+          name?: string | null
+          requested_by: string
+          row_count?: number | null
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          file_bytes?: string | null
+          filename?: string | null
+          filters?: Json
+          id?: string
+          name?: string | null
+          requested_by?: string
+          row_count?: number | null
+          status?: string
+        }
+        Relationships: []
+      }
       field_definitions: {
         Row: {
           created_at: string
@@ -326,6 +368,45 @@ export type Database = {
           synonyms?: string[]
           updated_at?: string
           validation_regex?: string | null
+        }
+        Relationships: []
+      }
+      mapping_templates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          mapping: Json
+          match_company: string | null
+          match_filename_pattern: string | null
+          name: string
+          priority: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          mapping?: Json
+          match_company?: string | null
+          match_filename_pattern?: string | null
+          name: string
+          priority?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          mapping?: Json
+          match_company?: string | null
+          match_filename_pattern?: string | null
+          name?: string
+          priority?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -449,6 +530,42 @@ export type Database = {
           },
         ]
       }
+      phi_access_log: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json
+          id: string
+          row_count: number | null
+          source_file_id: string | null
+          target_id: string | null
+          target_table: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json
+          id?: string
+          row_count?: number | null
+          source_file_id?: string | null
+          target_id?: string | null
+          target_table?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          row_count?: number | null
+          source_file_id?: string | null
+          target_id?: string | null
+          target_table?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -488,6 +605,7 @@ export type Database = {
           header_row: number | null
           id: string
           kind: string
+          mapping_template_id: string | null
           mime: string | null
           row_count: number
           sha256: string | null
@@ -509,6 +627,7 @@ export type Database = {
           header_row?: number | null
           id?: string
           kind?: string
+          mapping_template_id?: string | null
           mime?: string | null
           row_count?: number
           sha256?: string | null
@@ -530,6 +649,7 @@ export type Database = {
           header_row?: number | null
           id?: string
           kind?: string
+          mapping_template_id?: string | null
           mime?: string | null
           row_count?: number
           sha256?: string | null
@@ -540,7 +660,15 @@ export type Database = {
           uploaded_at?: string
           uploaded_by?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "source_files_mapping_template_id_fkey"
+            columns: ["mapping_template_id"]
+            isOneToOne: false
+            referencedRelation: "mapping_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       upload_history: {
         Row: {

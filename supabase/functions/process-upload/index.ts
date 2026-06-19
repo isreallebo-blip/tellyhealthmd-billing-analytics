@@ -234,7 +234,7 @@ async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<Row[
   return rows.filter((r: any) => r && typeof r === "object");
 }
 
-async function processInBackground(sourceFileId: string, rows: Row[], defs: FieldDef[], opts?: { text?: string; kind?: string }) {
+async function processInBackground(sourceFileId: string, rows: Row[], defs: FieldDef[], opts?: { text?: string; kind?: string; filename?: string }) {
   const db = adminClient();
   try {
     await db.from("source_files").update({ status: "parsing" }).eq("id", sourceFileId);
@@ -246,7 +246,6 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
       }
       rows = await extractRowsFromText(opts.text, defs);
       if (rows.length === 0) {
-        // Mark as needs_review with zero rows so the user can re-parse or adjust
         await db.from("source_files").update({
           status: "needs_review", row_count: 0,
           error: "AI extracted no rows from this document.",
@@ -258,20 +257,14 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
 
     // Column mapping from union of headers
     const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r ?? {}))));
+    const validKeys = new Set(defs.map((d) => d.field_key));
     const mapping: Record<string, { field: string | null; confidence: number }> = {};
-    const unmapped: string[] = [];
-    for (const h of headers) {
-      const m = mapColumn(h, defs);
-      mapping[h] = m;
-      if (!m.field) unmapped.push(h);
-    }
-    const defByKey = new Map(defs.map((d) => [d.field_key, d]));
-    let detectedCompany: string | null = null;
 
-    // detect company from first non-empty row
+    // Detect company first (used to pick a mapping template)
+    let detectedCompany: string | null = null;
     for (const r of rows) {
-      for (const [h, m] of Object.entries(mapping)) {
-        if (m.field === "company") {
+      for (const h of headers) {
+        if (norm(h) === norm("company")) {
           const v = normText((r as any)[h]);
           if (v) { detectedCompany = v; break; }
         }
@@ -279,10 +272,46 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
       if (detectedCompany) break;
     }
 
+    // Load active mapping templates and pick the highest-priority match
+    let appliedTemplate: { id: string; mapping: Record<string, string> } | null = null;
+    try {
+      const { data: tpls } = await db.from("mapping_templates")
+        .select("id,match_company,match_filename_pattern,mapping,priority")
+        .eq("is_active", true).order("priority", { ascending: false });
+      for (const t of (tpls ?? []) as any[]) {
+        const companyMatch = t.match_company
+          ? (detectedCompany && detectedCompany.toLowerCase() === String(t.match_company).toLowerCase())
+          : false;
+        let fileMatch = false;
+        if (t.match_filename_pattern && opts?.filename) {
+          try { fileMatch = new RegExp(t.match_filename_pattern, "i").test(opts.filename); } catch {}
+        }
+        if (companyMatch || fileMatch) {
+          appliedTemplate = { id: t.id, mapping: t.mapping ?? {} };
+          break;
+        }
+      }
+    } catch (e) { console.error("template lookup failed", e); }
+
+    for (const h of headers) {
+      // 1) explicit template wins
+      const tpl = appliedTemplate?.mapping?.[h];
+      if (tpl && validKeys.has(tpl)) {
+        mapping[h] = { field: tpl, confidence: 1.0 };
+        continue;
+      }
+      // 2) fall back to fuzzy registry mapping
+      mapping[h] = mapColumn(h, defs);
+    }
+    const unmapped = Object.entries(mapping).filter(([, m]) => !m.field).map(([h]) => h);
+
+    const defByKey = new Map(defs.map((d) => [d.field_key, d]));
+
     await db.from("source_files").update({
       column_mapping: mapping,
       unmapped_columns: unmapped,
       detected_company: detectedCompany,
+      mapping_template_id: appliedTemplate?.id ?? null,
     }).eq("id", sourceFileId);
 
     // Wipe any prior parsed rows (re-parse path)
@@ -413,7 +442,7 @@ Deno.serve(async (req) => {
       sf.id,
       rows ?? [],
       (defs ?? []) as FieldDef[],
-      { text, kind: fileKind },
+      { text, kind: fileKind, filename },
     );
     const er = (globalThis as any).EdgeRuntime;
     if (typeof er?.waitUntil === "function") er.waitUntil(promise);

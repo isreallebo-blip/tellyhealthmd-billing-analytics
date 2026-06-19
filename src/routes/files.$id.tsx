@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowLeft, RefreshCw, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { SourceFilePreview } from "@/components/source-file-preview";
+import { logPhiAccess } from "@/lib/phi-log";
 
 export const Route = createFileRoute("/files/$id")({
   component: () => (
@@ -50,6 +51,10 @@ function ReviewPage() {
   const [hideDuplicates, setHideDuplicates] = useState(false);
 
   const ROW_SELECT = "id,row_index,source_row,data,confidence,validation_errors,edited,is_duplicate,duplicate_of_source_file_id";
+
+  useEffect(() => {
+    logPhiAccess({ action: "view_source_file", target_table: "source_files", target_id: id, source_file_id: id });
+  }, [id]);
 
   useEffect(() => {
     let alive = true;
