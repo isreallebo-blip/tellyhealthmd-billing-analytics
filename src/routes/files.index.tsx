@@ -164,6 +164,42 @@ function FilesPage() {
     triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
   }
 
+  async function retryParse(f: SourceFile) {
+    setBusy(f.id + ":rp");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      // Optimistically flip status so UI shows it immediately
+      await supabase.from("source_files" as any)
+        .update({ status: "parsing", error: null })
+        .eq("id", f.id);
+      const r = await fetch(`${url}/functions/v1/reparse-source-file`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: key,
+        },
+        body: JSON.stringify({ source_file_id: f.id }),
+      });
+      const text = await r.text();
+      if (!r.ok) {
+        let msg = text;
+        try { msg = JSON.parse(text)?.error ?? text; } catch {}
+        throw new Error(msg || `Retry failed (${r.status})`);
+      }
+      toast.success("Re-parsing started");
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Retry failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function exportReviewed(f: SourceFile) {
     setBusy(f.id + ":ex");
     const { data, error } = await supabase
