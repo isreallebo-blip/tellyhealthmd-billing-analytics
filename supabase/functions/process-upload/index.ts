@@ -562,7 +562,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { upload_mode, source_file_id, filename, mime, size_bytes, file_b64, rows, text, kind, headers, start_index, total_rows, is_last_chunk } = body as {
-      upload_mode?: "start_structured" | "append_structured" | "restart_structured";
+      upload_mode?: "start_structured" | "append_structured";
       source_file_id?: string;
       filename: string; mime?: string; size_bytes?: number;
       file_b64?: string;
