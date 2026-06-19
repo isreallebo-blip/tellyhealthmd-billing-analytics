@@ -14,8 +14,8 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/ai-training")({
   head: () => ({
     meta: [
-      { title: "AI Training — TellyHealthMD Billing Analytics" },
-      { name: "description", content: "Customize how the AI analyzes your billing data." },
+      { title: "Training — TellyHealthMD Billing Analytics" },
+      { name: "description", content: "Customize how the system analyzes your billing data." },
     ],
   }),
   component: () => (
@@ -87,8 +87,8 @@ function AiTrainingPage() {
   return (
     <>
       <PageHeader
-        title="AI Training Instructions"
-        description="Write plain-English instructions to customize how the AI analyzes your data. These are sent to the AI on every analysis run."
+        title="Training Instructions"
+        description="Write plain-English instructions to customize how the system analyzes your data. These are sent on every analysis run."
       />
       <div className="p-8 max-w-3xl space-y-6">
         <Card>
@@ -167,7 +167,7 @@ function AiTrainingPage() {
         </div>
 
         <p className="text-xs text-muted-foreground text-center pt-2">
-          Active instructions are included in every AI analysis run.
+          Active instructions are included in every analysis run.
         </p>
       </div>
     </>
