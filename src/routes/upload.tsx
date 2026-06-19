@@ -25,16 +25,24 @@ export const Route = createFileRoute("/upload")({
   ),
 });
 
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  // Chunked to avoid stack overflow on large files
-  const bytes = new Uint8Array(buf);
-  const CHUNK = 0x8000;
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
+// Native, off-main-thread base64 via FileReader — much faster than a JS loop
+// for large files. Strips the "data:...;base64," prefix.
+function fileToBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = r.result as string;
+      const i = s.indexOf(",");
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(r.error ?? new Error("read failed"));
+    r.readAsDataURL(file);
+  });
 }
+
+// Files larger than this skip embedded-bytes storage to keep uploads fast.
+// Original-file preview/download is only available below this threshold.
+const EMBED_BYTES_MAX = 6 * 1024 * 1024;
 
 // Parse a worksheet into row objects, auto-detecting the real header row.
 // Spreadsheets often have title / blank / merged rows above the column
@@ -130,28 +138,34 @@ function UploadPage() {
 
   async function submitFile(file: File): Promise<string | null> {
     const kind = detectKind(file.name);
-    const buf = await file.arrayBuffer();
-    const file_b64 = arrayBufferToBase64(buf);
+    const embedBytes = file.size <= EMBED_BYTES_MAX;
 
     let payload: Record<string, any> = {
       filename: file.name,
       mime: file.type || null,
       size_bytes: file.size,
-      file_b64,
       kind,
     };
 
     if (kind === "structured") {
+      // Parse the spreadsheet first (rows are required server-side). Only
+      // base64-encode the raw bytes when the file is small enough to embed —
+      // the parser already has everything it needs to process the rows.
+      const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array", cellDates: false });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = sheetToRows(sheet);
-      payload.rows = rows;
+      payload.rows = sheetToRows(sheet);
+      if (embedBytes) payload.file_b64 = await fileToBase64(new Blob([buf]));
     } else {
-      const text = await extractUnstructuredText(file);
+      const [text, b64] = await Promise.all([
+        extractUnstructuredText(file),
+        embedBytes ? fileToBase64(file) : Promise.resolve<string | null>(null),
+      ]);
       if (!text || text.trim().length < 20) {
         throw new Error("No extractable text found (scanned PDF? OCR is not supported yet).");
       }
       payload.text = text;
+      if (b64) payload.file_b64 = b64;
     }
 
     const { data: sessionData } = await supabase.auth.getSession();
@@ -186,7 +200,7 @@ function UploadPage() {
     setSubmitting(true);
 
     const files = queue.slice();
-    const CONCURRENCY = Math.min(6, Math.max(2, files.length));
+    const CONCURRENCY = Math.min(8, Math.max(3, files.length));
     let nextIndex = 0;
     let done = 0;
     let firstId: string | null = null;
