@@ -41,7 +41,13 @@ function getServiceRoleKey(): string | null {
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEY")),
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEYS")),
   ];
-  return c.find((k) => jwtRole(k) === "service_role") ?? null;
+  // Prefer a verified JWT with service_role; otherwise accept the new sb_secret_* format.
+  return (
+    c.find((k) => jwtRole(k) === "service_role") ??
+    c.find((k) => k.startsWith("sb_secret_")) ??
+    c[0] ??
+    null
+  );
 }
 function adminClient() {
   const k = getServiceRoleKey();
