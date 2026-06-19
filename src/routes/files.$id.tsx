@@ -202,52 +202,70 @@ function ReviewPage() {
           </Card>
         )}
 
-        {rows.length > 0 && (
-          <Card className="overflow-hidden">
-            <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center gap-3">
-              <span>Showing first {rows.length.toLocaleString()} of {sf.row_count.toLocaleString()} rows</span>
-              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-400" /> low confidence</span>
-              <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> validation error</span>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
+            <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center justify-between">
+              <span className="font-medium text-foreground">Original file</span>
+              <span>read-only</span>
             </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-14 text-right text-xs">#</TableHead>
-                    {visibleFields.map((d) => <TableHead key={d.field_key} className="whitespace-nowrap">{d.label}</TableHead>)}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r) => (
-                    <TableRow key={r.id} className={r.edited ? "bg-primary/5" : ""}>
-                      <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{(r.source_row ?? r.row_index + 2)}</TableCell>
-                      {visibleFields.map((d) => {
-                        const value = r.data?.[d.field_key] ?? "";
-                        const conf = r.confidence?.[d.field_key] ?? 1;
-                        const err = r.validation_errors?.[d.field_key];
-                        const cls = err
-                          ? "bg-destructive/10 border-destructive/40"
-                          : conf < 0.7
-                            ? "bg-amber-500/10 border-amber-500/40"
-                            : "border-transparent";
-                        return (
-                          <TableCell key={d.field_key} className="p-1">
-                            <Input
-                              defaultValue={value === null ? "" : String(value)}
-                              onBlur={(e) => saveCell(r.id, d.field_key, e.target.value === "" ? null : e.target.value)}
-                              className={`h-8 text-sm border ${cls}`}
-                              title={err ?? (conf < 0.7 ? `Confidence ${(conf * 100).toFixed(0)}%` : undefined)}
-                            />
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="flex-1 min-h-0">
+              <SourceFilePreview sourceFileId={sf.id} filename={sf.filename} />
             </div>
           </Card>
-        )}
+
+          {rows.length > 0 ? (
+            <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
+              <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+                <span className="font-medium text-foreground">Parsed rows</span>
+                <span>· first {rows.length.toLocaleString()} of {sf.row_count.toLocaleString()}</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-400" /> low confidence</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> validation error</span>
+              </div>
+              <div className="overflow-auto flex-1 min-h-0">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-background z-10">
+                    <TableRow>
+                      <TableHead className="w-14 text-right text-xs">#</TableHead>
+                      {visibleFields.map((d) => <TableHead key={d.field_key} className="whitespace-nowrap">{d.label}</TableHead>)}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((r) => (
+                      <TableRow key={r.id} className={r.edited ? "bg-primary/5" : ""}>
+                        <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{(r.source_row ?? r.row_index + 2)}</TableCell>
+                        {visibleFields.map((d) => {
+                          const value = r.data?.[d.field_key] ?? "";
+                          const conf = r.confidence?.[d.field_key] ?? 1;
+                          const err = r.validation_errors?.[d.field_key];
+                          const cls = err
+                            ? "bg-destructive/10 border-destructive/40"
+                            : conf < 0.7
+                              ? "bg-amber-500/10 border-amber-500/40"
+                              : "border-transparent";
+                          return (
+                            <TableCell key={d.field_key} className="p-1">
+                              <Input
+                                defaultValue={value === null ? "" : String(value)}
+                                onBlur={(e) => saveCell(r.id, d.field_key, e.target.value === "" ? null : e.target.value)}
+                                className={`h-8 text-sm border ${cls}`}
+                                title={err ?? (conf < 0.7 ? `Confidence ${(conf * 100).toFixed(0)}%` : undefined)}
+                              />
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
+          ) : (
+            <Card className="p-8 text-sm text-muted-foreground flex items-center justify-center" style={{ height: "70vh" }}>
+              {sf.status === "parsing" ? "Parsing…" : "No parsed rows yet."}
+            </Card>
+          )}
+        </div>
+
       </div>
     </>
   );
