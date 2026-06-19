@@ -182,10 +182,17 @@ function ReviewPage() {
           <Card className="p-4 border-amber-500/40 bg-amber-500/5">
             <div className="flex gap-3">
               <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-              <div className="text-sm">
-                <div className="font-medium">Unmapped columns ({sf.unmapped_columns.length})</div>
+              <div className="text-sm flex-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="font-medium">Unmapped columns ({sf.unmapped_columns.length})</div>
+                  {profile?.role === "admin" && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link to="/admin/fields">Open Field Registry</Link>
+                    </Button>
+                  )}
+                </div>
                 <div className="text-muted-foreground mt-1">
-                  These source columns don't match any field in the registry — values are not being captured. Add a synonym to <span className="font-mono">field_definitions</span> and re-parse:
+                  These source columns don't match any registered field — their values are dropped. Add the header as a synonym to an existing field (or create a new field), then click <span className="font-medium text-foreground">Re-parse</span>.
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {sf.unmapped_columns.map((c) => <Badge key={c} variant="outline" className="font-mono text-xs">{c}</Badge>)}
