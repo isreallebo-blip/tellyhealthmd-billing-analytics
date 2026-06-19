@@ -28,7 +28,7 @@ function hexToBytes(hex: string): Uint8Array {
 
 function toCSV(rows: Record<string, any>[]): string {
   if (!rows.length) return "";
-  const headers = Array.from(rows.reduce((s, r) => { Object.keys(r ?? {}).forEach(k => s.add(k)); return s; }, new Set<string>()));
+  const headers: string[] = Array.from(rows.reduce((s: Set<string>, r) => { Object.keys(r ?? {}).forEach(k => s.add(k)); return s; }, new Set<string>()));
   const esc = (v: any) => {
     if (v == null) return "";
     const s = typeof v === "object" ? JSON.stringify(v) : String(v);
