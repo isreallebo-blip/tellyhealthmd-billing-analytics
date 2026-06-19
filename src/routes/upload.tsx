@@ -144,7 +144,7 @@ function UploadPage() {
     if (kind === "structured") {
       const wb = XLSX.read(buf, { type: "array", cellDates: false });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
+      const rows = sheetToRows(sheet);
       payload.rows = rows;
     } else {
       const text = await extractUnstructuredText(file);
