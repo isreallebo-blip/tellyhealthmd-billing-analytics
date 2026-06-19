@@ -187,6 +187,22 @@ function ReviewPage() {
     return defs.filter((d) => mapped.has(d.field_key));
   }, [defs, sf]);
 
+  useEffect(() => {
+    if (!sf || sf.status !== "parsing" || rowsLoading || rowsTotal === null || sf.row_count <= 0) return;
+    if (rowsTotal < sf.row_count) return;
+    let cancelled = false;
+    setSf((prev) => (prev?.id === sf.id ? { ...prev, status: "needs_review", error: null } : prev));
+    supabase
+      .from("source_files" as any)
+      .update({ status: "needs_review", error: null })
+      .eq("id", sf.id)
+      .eq("status", "parsing")
+      .then(({ error }) => {
+        if (error && !cancelled) toast.error(`Failed to finish parsing: ${error.message}`);
+      });
+    return () => { cancelled = true; };
+  }, [sf?.id, sf?.status, sf?.row_count, rowsLoading, rowsTotal]);
+
   async function reparse() {
     if (!sf) return;
     setBusy("reparse");
