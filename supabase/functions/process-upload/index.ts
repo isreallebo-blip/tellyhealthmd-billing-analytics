@@ -657,6 +657,14 @@ Deno.serve(async (req) => {
     if (requestedId) {
       const { data: existing } = await userClient.from("source_files").select("id,status").eq("id", requestedId).maybeSingle();
       if (existing) {
+        if (fileKind === "structured" && ["start_structured", "append_structured"].includes(String(upload_mode)) && ["needs_review", "approved"].includes(String(existing.status))) {
+          const { count } = await db.from("parsed_rows").select("id", { count: "exact", head: true }).eq("source_file_id", requestedId);
+          if (typeof count === "number" && count === Number(total_rows ?? count)) {
+            return new Response(JSON.stringify({ source_file_id: requestedId, already_complete: true }), {
+              status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
         if (!upload_mode && fileKind === "unstructured" && ["parsing", "needs_review", "approved"].includes(String(existing.status))) {
           return new Response(JSON.stringify({ source_file_id: requestedId, already_processing: true }), {
             status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
