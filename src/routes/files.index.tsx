@@ -263,6 +263,8 @@ function FilesPage() {
     nextFiles.forEach((file) => {
       if (file.status === "needs_review" || file.status === "approved") uploadManager.markSourceFileComplete(file.id, "done");
       if (file.status === "failed") uploadManager.markSourceFileComplete(file.id, "error", file.error);
+      // Clear the transient "Publishing…" flag once the server confirms approve/fail.
+      if (file.status === "approved" || file.status === "failed") publishingTracker.clear(file.id);
     });
     setFiles(nextFiles);
   }
