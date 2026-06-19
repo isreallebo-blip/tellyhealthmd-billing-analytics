@@ -441,7 +441,7 @@ function FilesPage() {
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>
                   <TableCell className="text-sm">{f.detected_company ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell><StatusBadge status={f.status} percent={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.percent ?? progress[f.id] : null} phase={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.phase ?? null : null} /></TableCell>
+                  <TableCell><StatusBadge status={f.status} percent={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.percent ?? progress[f.id] : null} phase={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.phase ?? null : null} publishing={publishingTracker.isPublishing(f.id)} /></TableCell>
                   <TableCell className="text-right tabular-nums">{f.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{(f.size_bytes / 1024).toFixed(1)} KB</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(f.uploaded_at).toLocaleString()}</TableCell>
