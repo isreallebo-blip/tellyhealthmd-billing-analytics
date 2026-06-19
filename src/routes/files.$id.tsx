@@ -50,7 +50,7 @@ function ReviewPage() {
   const [rowsLoading, setRowsLoading] = useState(true);
   const [rowsLoaded, setRowsLoaded] = useState(0);
   const [rowsTotal, setRowsTotal] = useState<number | null>(null);
-  const [busy, setBusy] = useState<"reparse" | "approve" | null>(null);
+  const [busy, setBusy] = useState<"reparse" | "approve" | "unapprove" | null>(null);
 
   const [hideDuplicates, setHideDuplicates] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
