@@ -101,7 +101,21 @@ function validate(def: FieldDef, value: any): string | null {
   return null;
 }
 
-const BATCH = 500;
+const BATCH = 200;
+const MAX_INSERT_RETRIES = 4;
+
+async function insertWithRetry(db: any, batch: any[]): Promise<void> {
+  const tryInsert = async (rows: any[], attempt: number): Promise<void> => {
+    const { error } = await db.from("parsed_rows").insert(rows);
+    if (!error) return;
+    const timeout = error.code === "57014" || /timeout/i.test(error.message ?? "");
+    if (attempt >= MAX_INSERT_RETRIES || rows.length <= 25 || !timeout) throw error;
+    const mid = Math.ceil(rows.length / 2);
+    await tryInsert(rows.slice(0, mid), attempt + 1);
+    await tryInsert(rows.slice(mid), attempt + 1);
+  };
+  await tryInsert(batch, 0);
+}
 
 async function reparseInBackground(sourceFileId: string) {
   const db = adminClient();
@@ -172,8 +186,7 @@ async function reparseInBackground(sourceFileId: string) {
           data, confidence, validation_errors: errs,
         };
       });
-      const { error } = await db.from("parsed_rows").insert(chunk);
-      if (error) throw error;
+      await insertWithRetry(db, chunk);
     }
 
     try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
