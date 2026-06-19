@@ -224,11 +224,60 @@ function FilesPage() {
           </Button>
         }
       />
-      <div className="p-8">
+      <div className="p-8 space-y-4">
+        {selected.size > 0 && (
+          <Card className="px-4 py-3 flex items-center justify-between gap-3 bg-muted/40">
+            <div className="text-sm">
+              <span className="font-medium">{selected.size}</span> file{selected.size === 1 ? "" : "s"} selected
+              <Button variant="ghost" size="sm" className="ml-2 h-7" onClick={clearSelection}>
+                <X className="h-3.5 w-3.5 mr-1" /> Clear
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={!!bulkBusy} onClick={bulkDownloadOriginals}>
+                {bulkBusy === "download" ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+                Download originals
+              </Button>
+              <Button variant="outline" size="sm" disabled={!!bulkBusy} onClick={bulkExport}>
+                {bulkBusy === "export" ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileDown className="h-4 w-4 mr-1.5" />}
+                Export CSVs
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={!!bulkBusy}>
+                    {bulkBusy === "delete" ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+                    Delete selected
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {selected.size} file{selected.size === 1 ? "" : "s"}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The selected files and all of their parsed rows will be permanently removed. Approved files will also have their claims deleted from the dashboard.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={bulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Delete {selected.size}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </Card>
+        )}
         <Card>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleAll}
+                    aria-label="Select all files"
+                  />
+                </TableHead>
                 <TableHead>Filename</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Status</TableHead>
