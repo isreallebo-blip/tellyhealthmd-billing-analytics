@@ -8,33 +8,34 @@ import { useAuth } from "@/hooks/use-auth";
  */
 export function useActiveUploadCount(): number {
   const { profile } = useAuth();
+  const profileId = profile?.id ?? null;
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    if (!profile) return;
+    if (!profileId) return;
     let cancelled = false;
 
     async function refresh() {
       const { count: c } = await supabase
         .from("upload_jobs" as any)
         .select("id", { count: "exact", head: true })
-        .eq("user_id", profile!.id)
+        .eq("user_id", profileId)
         .in("status", ["queued", "processing"]);
       if (!cancelled) setCount(c ?? 0);
     }
     refresh();
 
     const channel = supabase
-      .channel(`upload-jobs-count-${profile.id}`)
+      .channel(`upload-jobs-count-${profileId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "upload_jobs", filter: `user_id=eq.${profile.id}` },
+        { event: "*", schema: "public", table: "upload_jobs", filter: `user_id=eq.${profileId}` },
         () => { refresh(); },
       )
       .subscribe();
 
     return () => { cancelled = true; supabase.removeChannel(channel); };
-  }, [profile]);
+  }, [profileId]);
 
   return count;
 }
