@@ -1,0 +1,238 @@
+// Module-level upload manager. Runs uploads in the background so they continue
+// even when the user navigates away from the Upload page. Subscribers get
+// notified of state changes via useSyncExternalStore.
+
+import * as XLSX from "xlsx";
+import { supabase } from "@/integrations/supabase/client";
+import { detectKind, extractUnstructuredText } from "@/lib/file-extract";
+import { toast } from "sonner";
+
+export type UploadItemStatus = "queued" | "uploading" | "done" | "error";
+
+export type UploadItem = {
+  id: string;
+  name: string;
+  size: number;
+  status: UploadItemStatus;
+  error?: string;
+  sourceFileId?: string | null;
+  startedAt?: number;
+  finishedAt?: number;
+};
+
+type State = {
+  items: UploadItem[];
+  active: number;
+};
+
+const EMBED_BYTES_MAX = 6 * 1024 * 1024;
+const CONCURRENCY = 3;
+
+let state: State = { items: [], active: 0 };
+const listeners = new Set<() => void>();
+let running = 0;
+let firstNewId: string | null = null;
+let onFirstSourceFile: ((id: string) => void) | null = null;
+
+function setState(patch: Partial<State> | ((s: State) => State)) {
+  state = typeof patch === "function" ? patch(state) : { ...state, ...patch };
+  listeners.forEach((l) => l());
+}
+
+function patchItem(id: string, patch: Partial<UploadItem>) {
+  setState((s) => ({
+    ...s,
+    items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it)),
+  }));
+}
+
+function fileToBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = r.result as string;
+      const i = s.indexOf(",");
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(r.error ?? new Error("read failed"));
+    r.readAsDataURL(file);
+  });
+}
+
+function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
+  const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, {
+    header: 1, defval: null, blankrows: false, raw: true,
+  });
+  if (aoa.length === 0) return [];
+  const cellText = (v: any) =>
+    v == null ? "" : typeof v === "string" ? v.trim() : String(v).trim();
+  const SCAN = Math.min(aoa.length, 25);
+  let headerIdx = 0;
+  let bestScore = -1;
+  for (let i = 0; i < SCAN; i++) {
+    const row = aoa[i] ?? [];
+    let strings = 0, nonEmpty = 0;
+    for (const c of row) {
+      const t = cellText(c);
+      if (!t) continue;
+      nonEmpty++;
+      if (typeof c === "string" && isNaN(Number(t))) strings++;
+    }
+    const score = strings >= 2 ? strings * 10 + nonEmpty : 0;
+    if (score > bestScore) { bestScore = score; headerIdx = i; }
+  }
+  const headerRow = aoa[headerIdx] ?? [];
+  const seen = new Map<string, number>();
+  const headers: string[] = headerRow.map((c, i) => {
+    let name = cellText(c);
+    if (!name) name = `Column ${XLSX.utils.encode_col(i)}`;
+    const n = seen.get(name) ?? 0;
+    seen.set(name, n + 1);
+    return n === 0 ? name : `${name} (${n + 1})`;
+  });
+  const out: Record<string, any>[] = [];
+  for (let r = headerIdx + 1; r < aoa.length; r++) {
+    const row = aoa[r] ?? [];
+    if (row.every((c) => c == null || cellText(c) === "")) continue;
+    const obj: Record<string, any> = {};
+    let any = false;
+    for (let i = 0; i < headers.length; i++) {
+      const v = row[i];
+      obj[headers[i]] = v == null || v === "" ? null : v;
+      if (v != null && cellText(v) !== "") any = true;
+    }
+    if (any) out.push(obj);
+  }
+  return out;
+}
+
+async function processOne(item: UploadItem, file: File) {
+  patchItem(item.id, { status: "uploading", startedAt: Date.now() });
+  const kind = detectKind(file.name);
+  const embedBytes = file.size <= EMBED_BYTES_MAX;
+  const payload: Record<string, any> = {
+    filename: file.name,
+    mime: file.type || null,
+    size_bytes: file.size,
+    kind,
+  };
+  if (kind === "structured") {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: false });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    payload.rows = sheetToRows(sheet);
+    if (embedBytes) payload.file_b64 = await fileToBase64(new Blob([buf]));
+  } else {
+    const [text, b64] = await Promise.all([
+      extractUnstructuredText(file),
+      embedBytes ? fileToBase64(file) : Promise.resolve<string | null>(null),
+    ]);
+    if (!text || text.trim().length < 20) {
+      throw new Error("No extractable text found (scanned PDF? OCR is not supported yet).");
+    }
+    payload.text = text;
+    if (b64) payload.file_b64 = b64;
+  }
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) throw new Error("You're not signed in.");
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      apikey: publishableKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch {}
+  if (!response.ok) {
+    throw new Error(data?.error ?? text ?? `Upload failed (${response.status})`);
+  }
+  return (data?.source_file_id ?? null) as string | null;
+}
+
+async function pump() {
+  while (running < CONCURRENCY) {
+    const next = state.items.find((it) => it.status === "queued");
+    if (!next) break;
+    running++;
+    setState({ active: running });
+    const fileRef = fileRefs.get(next.id);
+    if (!fileRef) {
+      patchItem(next.id, { status: "error", error: "File reference lost" });
+      running--;
+      setState({ active: running });
+      continue;
+    }
+    (async () => {
+      try {
+        const sourceId = await processOne(next, fileRef);
+        patchItem(next.id, {
+          status: "done",
+          sourceFileId: sourceId,
+          finishedAt: Date.now(),
+        });
+        toast.success(`${next.name} queued for parsing`);
+        if (sourceId && !firstNewId) {
+          firstNewId = sourceId;
+          onFirstSourceFile?.(sourceId);
+        }
+      } catch (e: any) {
+        patchItem(next.id, {
+          status: "error",
+          error: e?.message ?? "Failed",
+          finishedAt: Date.now(),
+        });
+        toast.error(`${next.name}: ${e?.message ?? "Failed"}`);
+      } finally {
+        fileRefs.delete(next.id);
+        running--;
+        setState({ active: running });
+        pump();
+      }
+    })();
+  }
+}
+
+// Files can't be serialized into state; keep raw refs separately.
+const fileRefs = new Map<string, File>();
+
+export const uploadManager = {
+  enqueue(files: File[]): UploadItem[] {
+    const items: UploadItem[] = files.map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      size: f.size,
+      status: "queued" as const,
+    }));
+    items.forEach((it, i) => fileRefs.set(it.id, files[i]));
+    setState((s) => ({ ...s, items: [...s.items, ...items] }));
+    pump();
+    return items;
+  },
+  remove(id: string) {
+    const it = state.items.find((x) => x.id === id);
+    if (!it) return;
+    if (it.status === "uploading") return; // can't cancel in-flight
+    fileRefs.delete(id);
+    setState((s) => ({ ...s, items: s.items.filter((x) => x.id !== id) }));
+  },
+  clearFinished() {
+    setState((s) => ({
+      ...s,
+      items: s.items.filter((x) => x.status === "queued" || x.status === "uploading"),
+    }));
+  },
+  resetFirstNew() { firstNewId = null; },
+  onFirstSourceFile(cb: ((id: string) => void) | null) { onFirstSourceFile = cb; },
+  subscribe(cb: () => void) { listeners.add(cb); return () => { listeners.delete(cb); }; },
+  getState(): State { return state; },
+};
