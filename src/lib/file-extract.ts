@@ -19,7 +19,7 @@ export function isSupported(filename: string): boolean {
 }
 
 async function extractPdf(buf: ArrayBuffer): Promise<string> {
-  const pdfjs: any = await import("pdfjs-dist/build/pdf.mjs");
+  const pdfjs: any = await import(/* @vite-ignore */ "pdfjs-dist/build/pdf.mjs" as any);
   pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
   const doc = await pdfjs.getDocument({ data: buf }).promise;
   const parts: string[] = [];
