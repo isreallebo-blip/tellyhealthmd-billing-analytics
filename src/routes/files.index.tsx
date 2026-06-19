@@ -6,9 +6,10 @@ import { AppShell, PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown } from "lucide-react";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X } from "lucide-react";
 import { toast } from "sonner";
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -87,6 +88,70 @@ function FilesPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
+
+  const allSelected = files.length > 0 && selected.size === files.length;
+  const someSelected = selected.size > 0 && !allSelected;
+  const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(files.map((f) => f.id)));
+  const clearSelection = () => setSelected(new Set());
+
+  async function bulkDelete() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    setBulkBusy("delete");
+    const { error } = await supabase.from("source_files" as any).delete().in("id", ids);
+    setBulkBusy(null);
+    if (error) return toast.error(error.message);
+    toast.success(`Deleted ${ids.length} file${ids.length === 1 ? "" : "s"}`);
+    setFiles((prev) => prev.filter((x) => !selected.has(x.id)));
+    clearSelection();
+  }
+
+  async function bulkExport() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    setBulkBusy("export");
+    let exported = 0;
+    for (const id of ids) {
+      const f = files.find((x) => x.id === id);
+      if (!f || f.row_count === 0) continue;
+      const { data, error } = await supabase
+        .from("parsed_rows" as any)
+        .select("row_index,data,is_duplicate,validation_errors,edited")
+        .eq("source_file_id", id)
+        .order("row_index", { ascending: true });
+      if (error || !data?.length) continue;
+      const rows = (data as any[]).map((r) => ({ ...(r.data ?? {}), _row: r.row_index, _duplicate: r.is_duplicate, _edited: r.edited }));
+      const csv = toCSV(rows);
+      const base = f.filename.replace(/\.[^.]+$/, "");
+      triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${base}-reviewed.csv`);
+      exported++;
+    }
+    setBulkBusy(null);
+    toast.success(`Exported ${exported} file${exported === 1 ? "" : "s"}`);
+  }
+
+  async function bulkDownloadOriginals() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    setBulkBusy("download");
+    let n = 0;
+    for (const id of ids) {
+      const f = files.find((x) => x.id === id);
+      if (!f) continue;
+      const { data, error } = await supabase.from("source_files" as any).select("file_bytes,mime").eq("id", id).single();
+      if (error || !data) continue;
+      const raw = (data as any).file_bytes as string | null;
+      if (!raw) continue;
+      const bytes = hexToBytes(raw);
+      triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+      n++;
+    }
+    setBulkBusy(null);
+    toast.success(`Downloaded ${n} original${n === 1 ? "" : "s"}`);
+  }
 
   async function downloadOriginal(f: SourceFile) {
     setBusy(f.id + ":dl");
@@ -159,11 +224,60 @@ function FilesPage() {
           </Button>
         }
       />
-      <div className="p-8">
+      <div className="p-8 space-y-4">
+        {selected.size > 0 && (
+          <Card className="px-4 py-3 flex items-center justify-between gap-3 bg-muted/40">
+            <div className="text-sm">
+              <span className="font-medium">{selected.size}</span> file{selected.size === 1 ? "" : "s"} selected
+              <Button variant="ghost" size="sm" className="ml-2 h-7" onClick={clearSelection}>
+                <X className="h-3.5 w-3.5 mr-1" /> Clear
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={!!bulkBusy} onClick={bulkDownloadOriginals}>
+                {bulkBusy === "download" ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+                Download originals
+              </Button>
+              <Button variant="outline" size="sm" disabled={!!bulkBusy} onClick={bulkExport}>
+                {bulkBusy === "export" ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileDown className="h-4 w-4 mr-1.5" />}
+                Export CSVs
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm" disabled={!!bulkBusy}>
+                    {bulkBusy === "delete" ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+                    Delete selected
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {selected.size} file{selected.size === 1 ? "" : "s"}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The selected files and all of their parsed rows will be permanently removed. Approved files will also have their claims deleted from the dashboard.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={bulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Delete {selected.size}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </Card>
+        )}
         <Card>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleAll}
+                    aria-label="Select all files"
+                  />
+                </TableHead>
                 <TableHead>Filename</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Status</TableHead>
@@ -175,13 +289,20 @@ function FilesPage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : files.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                   No uploads yet. <Link to="/upload" className="text-primary hover:underline">Upload your first file</Link>.
                 </TableCell></TableRow>
               ) : files.map((f) => (
-                <TableRow key={f.id} className="hover:bg-muted/40">
+                <TableRow key={f.id} className="hover:bg-muted/40" data-state={selected.has(f.id) ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(f.id)}
+                      onCheckedChange={() => toggleOne(f.id)}
+                      aria-label={`Select ${f.filename}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Link to="/files/$id" params={{ id: f.id }} className="flex items-center gap-2 font-medium hover:text-primary">
                       {f.kind === "unstructured"
