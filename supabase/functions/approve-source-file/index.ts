@@ -84,109 +84,127 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: corsHeaders });
     }
 
-    // Wipe previous claims_raw for this source file (re-approval path)
-    await db.from("claims_raw").delete().eq("source_file_id", source_file_id);
+    // Heavy work runs in the background so the UI can return to /files immediately.
+    // Mark the file as parsing so the list shows progress while claims_raw is rebuilt.
+    await db.from("source_files").update({ status: "parsing", error: null }).eq("id", source_file_id);
 
-    // Re-run dedup against the latest claims_raw before approving
-    await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: source_file_id });
+    const publishInBackground = async () => {
+      try {
+        // Wipe previous claims_raw for this source file (re-approval path)
+        await db.from("claims_raw").delete().eq("source_file_id", source_file_id);
 
-    // Lookup tables (same as old process-upload)
-    const [{ data: cptRef }, { data: overrides }] = await Promise.all([
-      db.from("cpt_reference").select("cpt_code,service_category,billing_type"),
-      db.from("cpt_insurance_overrides").select("cpt_code,insurance_code,billing_type_override"),
-    ]);
-    const cptMap = new Map<string, { service_category: string | null; billing_type: string | null }>();
-    cptRef?.forEach((r: any) =>
-      cptMap.set(String(r.cpt_code).toUpperCase(), { service_category: r.service_category, billing_type: r.billing_type })
-    );
-    const overrideMap = new Map<string, string>();
-    overrides?.forEach((r: any) =>
-      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
-    );
+        // Re-run dedup against the latest claims_raw before approving
+        await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: source_file_id });
 
-    // Page parsed_rows — skip duplicates
-    let inserted = 0, skipped = 0, dupSkipped = 0;
-    const PAGE = 1000;
-    let from = 0;
-    while (true) {
-      const { data: page, error: pErr } = await db
-        .from("parsed_rows")
-        .select("data,is_duplicate")
-        .eq("source_file_id", source_file_id)
-        .order("row_index", { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (pErr) throw pErr;
-      if (!page || page.length === 0) break;
+        // Lookup tables (same as old process-upload)
+        const [{ data: cptRef }, { data: overrides }] = await Promise.all([
+          db.from("cpt_reference").select("cpt_code,service_category,billing_type"),
+          db.from("cpt_insurance_overrides").select("cpt_code,insurance_code,billing_type_override"),
+        ]);
+        const cptMap = new Map<string, { service_category: string | null; billing_type: string | null }>();
+        cptRef?.forEach((r: any) =>
+          cptMap.set(String(r.cpt_code).toUpperCase(), { service_category: r.service_category, billing_type: r.billing_type })
+        );
+        const overrideMap = new Map<string, string>();
+        overrides?.forEach((r: any) =>
+          overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
+        );
 
-
-      const toInsert: Record<string, any>[] = [];
-      for (const r of page) {
-        if ((r as any).is_duplicate) { dupSkipped++; continue; }
-        const d = (r.data ?? {}) as Record<string, any>;
-        const acct = d.acct ?? null;
-        const dos = d.dos ?? null;
-        const cpt = d.cpt ? String(d.cpt).toUpperCase() : null;
-        const company = d.company ?? sf.detected_company ?? null;
-        if (!acct || !dos || !cpt || !company) { skipped++; continue; }
-
-
-        const ref = cptMap.get(cpt);
-        let billing_type = ref?.billing_type ?? null;
-        const service_category = ref?.service_category ?? null;
-        const pri_ins = d.pri_ins ? String(d.pri_ins).toUpperCase() : null;
-        const ov = pri_ins ? overrideMap.get(`${cpt}|${pri_ins}`) : undefined;
-        if (ov) billing_type = ov;
-        const is_primary_billable = ref ? billing_type === "Primary" : true;
-
-        toInsert.push({
-          company,
-          pt_name: d.pt_name ?? null,
-          dob: d.dob ?? null,
-          pri_ins,
-          prov_code: d.prov_code ?? null,
-          prov_name: d.prov_name ?? null,
-          dos, cpt,
-          avg_days_to_pmt: d.avg_days_to_pmt ?? null,
-          days_to_pmt: d.days_to_pmt ?? null,
-          visit_type: d.visit_type ?? null,
-          revenue: d.revenue ?? null,
-          pay_date: d.paydate ?? null,
-          denied_claim: d.denied_claim ?? false,
-          mrn: d.mrn ?? null,
-          acct,
-          service_category,
-          is_primary_billable,
-          source_file_id,
-        });
-      }
-      const chunks: any[][] = [];
-      for (let i = 0; i < toInsert.length; i += BATCH) chunks.push(toInsert.slice(i, i + BATCH));
-      let ci = 0;
-      async function insertWorker() {
+        let inserted = 0, skipped = 0, dupSkipped = 0;
+        const PAGE = 1000;
+        let from = 0;
         while (true) {
-          const idx = ci++;
-          if (idx >= chunks.length) return;
-          const { error: iErr } = await db.from("claims_raw").insert(chunks[idx]);
-          if (iErr) throw iErr;
-          inserted += chunks[idx].length;
+          const { data: page, error: pErr } = await db
+            .from("parsed_rows")
+            .select("data,is_duplicate")
+            .eq("source_file_id", source_file_id)
+            .order("row_index", { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (pErr) throw pErr;
+          if (!page || page.length === 0) break;
+
+          const toInsert: Record<string, any>[] = [];
+          for (const r of page) {
+            if ((r as any).is_duplicate) { dupSkipped++; continue; }
+            const d = (r.data ?? {}) as Record<string, any>;
+            const acct = d.acct ?? null;
+            const dos = d.dos ?? null;
+            const cpt = d.cpt ? String(d.cpt).toUpperCase() : null;
+            const company = d.company ?? sf.detected_company ?? null;
+            if (!acct || !dos || !cpt || !company) { skipped++; continue; }
+
+            const ref = cptMap.get(cpt);
+            let billing_type = ref?.billing_type ?? null;
+            const service_category = ref?.service_category ?? null;
+            const pri_ins = d.pri_ins ? String(d.pri_ins).toUpperCase() : null;
+            const ov = pri_ins ? overrideMap.get(`${cpt}|${pri_ins}`) : undefined;
+            if (ov) billing_type = ov;
+            const is_primary_billable = ref ? billing_type === "Primary" : true;
+
+            toInsert.push({
+              company,
+              pt_name: d.pt_name ?? null,
+              dob: d.dob ?? null,
+              pri_ins,
+              prov_code: d.prov_code ?? null,
+              prov_name: d.prov_name ?? null,
+              dos, cpt,
+              avg_days_to_pmt: d.avg_days_to_pmt ?? null,
+              days_to_pmt: d.days_to_pmt ?? null,
+              visit_type: d.visit_type ?? null,
+              revenue: d.revenue ?? null,
+              pay_date: d.paydate ?? null,
+              denied_claim: d.denied_claim ?? false,
+              mrn: d.mrn ?? null,
+              acct,
+              service_category,
+              is_primary_billable,
+              source_file_id,
+            });
+          }
+          const chunks: any[][] = [];
+          for (let i = 0; i < toInsert.length; i += BATCH) chunks.push(toInsert.slice(i, i + BATCH));
+          let ci = 0;
+          async function insertWorker() {
+            while (true) {
+              const idx = ci++;
+              if (idx >= chunks.length) return;
+              const { error: iErr } = await db.from("claims_raw").insert(chunks[idx]);
+              if (iErr) throw iErr;
+              inserted += chunks[idx].length;
+            }
+          }
+          await Promise.all(
+            Array.from({ length: Math.min(INSERT_CONCURRENCY, chunks.length) }, insertWorker)
+          );
+          if (page.length < PAGE) break;
+          from += PAGE;
         }
+
+        await db.from("source_files").update({
+          status: "approved",
+          approved_by: userId,
+          approved_at: new Date().toISOString(),
+          error: null,
+        }).eq("id", source_file_id);
+        console.log("approve-source-file done", { source_file_id, inserted, skipped, dupSkipped });
+      } catch (bgErr: any) {
+        console.error("approve-source-file background failed", bgErr);
+        await db.from("source_files").update({
+          status: "needs_review",
+          error: `Publish failed: ${bgErr?.message ?? "unknown error"}`,
+        }).eq("id", source_file_id);
       }
-      await Promise.all(
-        Array.from({ length: Math.min(INSERT_CONCURRENCY, chunks.length) }, insertWorker)
-      );
-      if (page.length < PAGE) break;
-      from += PAGE;
-    }
+    };
 
-    await db.from("source_files").update({
-      status: "approved",
-      approved_by: userId,
-      approved_at: new Date().toISOString(),
-    }).eq("id", source_file_id);
+    const er = (globalThis as any).EdgeRuntime;
+    if (typeof er?.waitUntil === "function") er.waitUntil(publishInBackground());
+    else publishInBackground();
 
-    return new Response(JSON.stringify({ inserted, skipped, duplicates_skipped: dupSkipped }), {
-      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify({ scheduled: true }), {
+      status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (err: any) {
     console.error("approve-source-file failed", err);
     return new Response(JSON.stringify({ error: err?.message ?? "Unexpected error" }), {
