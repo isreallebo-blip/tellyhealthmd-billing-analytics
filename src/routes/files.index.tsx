@@ -68,24 +68,26 @@ type SourceFile = {
   kind: "structured" | "unstructured";
 };
 
-function StatusBadge({ status, percent, phase, publishing }: { status: SourceFile["status"]; percent?: number | null; phase?: "uploading" | "parsing" | null; publishing?: boolean }) {
-  const map: Record<SourceFile["status"], { label: string; cls: string; icon: any }> = {
+function StatusBadge({ status, percent, phase, publishing }: { status: SourceFile["status"] | "publishing"; percent?: number | null; phase?: "uploading" | "parsing" | null; publishing?: boolean }) {
+  const map: Record<string, { label: string; cls: string; icon: any }> = {
     queued:       { label: "Analyzing",    cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
     parsing:      { label: "Analyzing",    cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
     needs_review: { label: "Needs Review", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300", icon: Eye },
     approved:     { label: "Approved",     cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300", icon: CheckCircle2 },
     failed:       { label: "Failed",       cls: "bg-destructive/15 text-destructive", icon: AlertCircle },
+    publishing:   { label: "Publishing",   cls: "bg-violet-500/15 text-violet-700 dark:text-violet-300", icon: Loader2 },
   };
-  const entry = map[status];
+  const entry = map[status as string] ?? map.needs_review;
   // While the background approve job is still running, override the badge
   // so the user sees "Publishing…" instead of the stale "Needs Review".
-  const effective = publishing && status !== "approved" && status !== "failed"
+  const isPublishingStatus = status === "publishing";
+  const effective = (publishing || isPublishingStatus) && status !== "approved" && status !== "failed"
     ? { label: "Publishing", cls: "bg-violet-500/15 text-violet-700 dark:text-violet-300", icon: Loader2 }
     : phase === "uploading"
       ? { label: "Analyzing", cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 }
       : entry;
-  const spinning = publishing || phase === "uploading" || status === "parsing" || status === "queued";
-  const showPct = !publishing && (phase === "uploading" || status === "parsing" || status === "queued") && typeof percent === "number" && isFinite(percent);
+  const spinning = publishing || isPublishingStatus || phase === "uploading" || status === "parsing" || status === "queued";
+  const showPct = !publishing && !isPublishingStatus && (phase === "uploading" || status === "parsing" || status === "queued") && typeof percent === "number" && isFinite(percent);
   const pct = showPct ? Math.min(99, Math.max(0, Math.round(percent!))) : null;
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
@@ -93,10 +95,11 @@ function StatusBadge({ status, percent, phase, publishing }: { status: SourceFil
         <effective.icon className={`h-3 w-3 ${spinning ? "animate-spin" : ""}`} />
         {effective.label}{pct !== null ? ` ${pct}%` : ""}
       </Badge>
-      {spinning && <Progress value={pct ?? (publishing ? 100 : 0)} className={`h-1.5 ${publishing ? "animate-pulse" : ""}`} />}
+      {spinning && <Progress value={pct ?? ((publishing || isPublishingStatus) ? 100 : 0)} className={`h-1.5 ${(publishing || isPublishingStatus) ? "animate-pulse" : ""}`} />}
     </div>
   );
 }
+
 
 function FilesPage() {
   const { user, loading: authLoading } = useAuth();
