@@ -170,7 +170,7 @@ function FilesPage() {
                 <TableHead className="text-right">Rows</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead>Uploaded</TableHead>
-                <TableHead className="w-40 text-right">Actions</TableHead>
+                <TableHead className="w-64 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
