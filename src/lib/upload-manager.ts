@@ -323,11 +323,13 @@ async function pump() {
         }
       } catch (e: any) {
         const cancelled = e?.name === "AbortError" && controller.signal.aborted;
+        const isSignOut = cancelled && e?.message === "Sign out";
         patchItem(next.id, {
           status: "error",
           error: cancelled ? "Cancelled" : (e?.message ?? "Failed"),
           finishedAt: Date.now(),
         });
+        if (isSignOut) return;
         if (cancelled) toast.message(`${next.name}: cancelled`);
         else toast.error(`${next.name}: ${e?.message ?? "Failed"}`);
       } finally {

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
@@ -8,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Profile } from "@/hooks/use-auth";
 import { useActiveUploadCount } from "@/hooks/use-active-upload-count";
 import { Button } from "@/components/ui/button";
+import { uploadManager } from "@/lib/upload-manager";
 import { toast } from "sonner";
 
 const buildMainItems = (isAdmin: boolean) => [
@@ -33,15 +35,24 @@ const adminItems = [
 const settingsItem = { title: "Settings", url: "/settings", icon: Settings };
 
 export function AppSidebar({ profile }: { profile: Profile | null }) {
+  const [signingOut, setSigningOut] = useState(false);
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
   const isAdmin = profile?.role === "admin";
-  const activeUploads = useActiveUploadCount();
-
   async function signOut() {
-    await supabase.auth.signOut();
-    toast.success("Signed out");
-    navigate({ to: "/auth" });
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      uploadManager.cancelAll();
+      const signOutPromise = supabase.auth.signOut();
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 1500));
+      await Promise.race([signOutPromise, timeoutPromise]);
+      toast.success("Signed out");
+    } catch (e) {
+      console.error("Sign out error:", e);
+    } finally {
+      navigate({ to: "/auth" });
+    }
   }
 
   const isActive = (url: string) => (url === "/" ? pathname === "/" : pathname.startsWith(url));
@@ -110,10 +121,10 @@ export function AppSidebar({ profile }: { profile: Profile | null }) {
           <Button
             variant="ghost"
             className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            onClick={signOut}
+            onClick={signOut} disabled={signingOut}
           >
-            <LogOut className="h-4 w-4 mr-2" />
-            Sign out
+            {signingOut ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LogOut className="h-4 w-4 mr-2" />}
+            {signingOut ? "Signing out..." : "Sign out"}
           </Button>
         </div>
       </aside>
