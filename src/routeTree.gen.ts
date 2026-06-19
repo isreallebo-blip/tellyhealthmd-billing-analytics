@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as NotificationsRouteImport } from './routes/notifications'
+import { Route as FilesRouteImport } from './routes/files'
 import { Route as ExportsRouteImport } from './routes/exports'
 import { Route as CptReferenceRouteImport } from './routes/cpt-reference'
 import { Route as ClaimsRouteImport } from './routes/claims'
@@ -41,6 +42,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FilesRoute = FilesRouteImport.update({
+  id: '/files',
+  path: '/files',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExportsRoute = ExportsRouteImport.update({
@@ -79,9 +85,9 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const FilesIdRoute = FilesIdRouteImport.update({
-  id: '/files/$id',
-  path: '/files/$id',
-  getParentRoute: () => rootRouteImport,
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => FilesRoute,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/admin/users',
@@ -127,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
+  '/files': typeof FilesRouteWithChildren
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
@@ -147,6 +154,7 @@ export interface FileRoutesByTo {
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
+  '/files': typeof FilesRouteWithChildren
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
@@ -168,6 +176,7 @@ export interface FileRoutesById {
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
+  '/files': typeof FilesRouteWithChildren
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
@@ -190,6 +199,7 @@ export interface FileRouteTypes {
     | '/claims'
     | '/cpt-reference'
     | '/exports'
+    | '/files'
     | '/notifications'
     | '/settings'
     | '/upload'
@@ -210,6 +220,7 @@ export interface FileRouteTypes {
     | '/claims'
     | '/cpt-reference'
     | '/exports'
+    | '/files'
     | '/notifications'
     | '/settings'
     | '/upload'
@@ -230,6 +241,7 @@ export interface FileRouteTypes {
     | '/claims'
     | '/cpt-reference'
     | '/exports'
+    | '/files'
     | '/notifications'
     | '/settings'
     | '/upload'
@@ -251,6 +263,7 @@ export interface RootRouteChildren {
   ClaimsRoute: typeof ClaimsRoute
   CptReferenceRoute: typeof CptReferenceRoute
   ExportsRoute: typeof ExportsRoute
+  FilesRoute: typeof FilesRouteWithChildren
   NotificationsRoute: typeof NotificationsRoute
   SettingsRoute: typeof SettingsRoute
   UploadRoute: typeof UploadRoute
@@ -261,7 +274,6 @@ export interface RootRouteChildren {
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTemplatesRoute: typeof AdminTemplatesRoute
   AdminUsersRoute: typeof AdminUsersRoute
-  FilesIdRoute: typeof FilesIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -285,6 +297,13 @@ declare module '@tanstack/react-router' {
       path: '/notifications'
       fullPath: '/notifications'
       preLoaderRoute: typeof NotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/files': {
+      id: '/files'
+      path: '/files'
+      fullPath: '/files'
+      preLoaderRoute: typeof FilesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/exports': {
@@ -338,10 +357,10 @@ declare module '@tanstack/react-router' {
     }
     '/files/$id': {
       id: '/files/$id'
-      path: '/files/$id'
+      path: '/$id'
       fullPath: '/files/$id'
       preLoaderRoute: typeof FilesIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof FilesRoute
     }
     '/admin/users': {
       id: '/admin/users'
@@ -395,6 +414,16 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface FilesRouteChildren {
+  FilesIdRoute: typeof FilesIdRoute
+}
+
+const FilesRouteChildren: FilesRouteChildren = {
+  FilesIdRoute: FilesIdRoute,
+}
+
+const FilesRouteWithChildren = FilesRoute._addFileChildren(FilesRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AiInsightsRoute: AiInsightsRoute,
@@ -403,6 +432,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClaimsRoute: ClaimsRoute,
   CptReferenceRoute: CptReferenceRoute,
   ExportsRoute: ExportsRoute,
+  FilesRoute: FilesRouteWithChildren,
   NotificationsRoute: NotificationsRoute,
   SettingsRoute: SettingsRoute,
   UploadRoute: UploadRoute,
@@ -413,7 +443,6 @@ const rootRouteChildren: RootRouteChildren = {
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTemplatesRoute: AdminTemplatesRoute,
   AdminUsersRoute: AdminUsersRoute,
-  FilesIdRoute: FilesIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
