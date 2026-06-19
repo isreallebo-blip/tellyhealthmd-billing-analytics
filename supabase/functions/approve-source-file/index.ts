@@ -51,7 +51,8 @@ function adminClient() {
   return createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { persistSession: false } });
 }
 
-const BATCH = 500;
+const BATCH = 1000;
+const INSERT_CONCURRENCY = 4;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
