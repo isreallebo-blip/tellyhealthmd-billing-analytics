@@ -20,6 +20,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AiTrainingRouteImport } from './routes/ai-training'
 import { Route as AiInsightsRouteImport } from './routes/ai-insights'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FilesIndexRouteImport } from './routes/files.index'
 import { Route as FilesIdRouteImport } from './routes/files.$id'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
@@ -84,6 +85,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FilesIndexRoute = FilesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => FilesRoute,
+} as any)
 const FilesIdRoute = FilesIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -145,6 +151,7 @@ export interface FileRoutesByFullPath {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
+  '/files/': typeof FilesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -154,7 +161,6 @@ export interface FileRoutesByTo {
   '/claims': typeof ClaimsRoute
   '/cpt-reference': typeof CptReferenceRoute
   '/exports': typeof ExportsRoute
-  '/files': typeof FilesRouteWithChildren
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
@@ -166,6 +172,7 @@ export interface FileRoutesByTo {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
+  '/files': typeof FilesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -188,6 +195,7 @@ export interface FileRoutesById {
   '/admin/templates': typeof AdminTemplatesRoute
   '/admin/users': typeof AdminUsersRoute
   '/files/$id': typeof FilesIdRoute
+  '/files/': typeof FilesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -211,6 +219,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
+    | '/files/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -220,7 +229,6 @@ export interface FileRouteTypes {
     | '/claims'
     | '/cpt-reference'
     | '/exports'
-    | '/files'
     | '/notifications'
     | '/settings'
     | '/upload'
@@ -232,6 +240,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
+    | '/files'
   id:
     | '__root__'
     | '/'
@@ -253,6 +262,7 @@ export interface FileRouteTypes {
     | '/admin/templates'
     | '/admin/users'
     | '/files/$id'
+    | '/files/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -355,6 +365,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/files/': {
+      id: '/files/'
+      path: '/'
+      fullPath: '/files/'
+      preLoaderRoute: typeof FilesIndexRouteImport
+      parentRoute: typeof FilesRoute
+    }
     '/files/$id': {
       id: '/files/$id'
       path: '/$id'
@@ -416,10 +433,12 @@ declare module '@tanstack/react-router' {
 
 interface FilesRouteChildren {
   FilesIdRoute: typeof FilesIdRoute
+  FilesIndexRoute: typeof FilesIndexRoute
 }
 
 const FilesRouteChildren: FilesRouteChildren = {
   FilesIdRoute: FilesIdRoute,
+  FilesIndexRoute: FilesIndexRoute,
 }
 
 const FilesRouteWithChildren = FilesRoute._addFileChildren(FilesRouteChildren)
