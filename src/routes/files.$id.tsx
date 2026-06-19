@@ -47,13 +47,17 @@ function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"reparse" | "approve" | null>(null);
 
+  const [hideDuplicates, setHideDuplicates] = useState(false);
+
+  const ROW_SELECT = "id,row_index,source_row,data,confidence,validation_errors,edited,is_duplicate,duplicate_of_source_file_id";
+
   useEffect(() => {
     let alive = true;
     async function load() {
       const [{ data: file }, { data: defs }, { data: prs }] = await Promise.all([
         supabase.from("source_files" as any).select("*").eq("id", id).maybeSingle(),
         supabase.from("field_definitions" as any).select("field_key,label,data_type,display_order").eq("is_active", true).order("display_order"),
-        supabase.from("parsed_rows" as any).select("id,row_index,source_row,data,confidence,validation_errors,edited").eq("source_file_id", id).order("row_index").limit(500),
+        supabase.from("parsed_rows" as any).select(ROW_SELECT).eq("source_file_id", id).order("row_index").limit(500),
       ]);
       if (!alive) return;
       setSf((file ?? null) as unknown as SourceFile);
@@ -70,9 +74,8 @@ function ReviewPage() {
         setSf(r);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "parsed_rows", filter: `source_file_id=eq.${id}` }, () => {
-        // Refresh page of rows on bulk changes
         supabase.from("parsed_rows" as any)
-          .select("id,row_index,source_row,data,confidence,validation_errors,edited")
+          .select(ROW_SELECT)
           .eq("source_file_id", id).order("row_index").limit(500)
           .then(({ data }) => { if (alive) setRows((data ?? []) as unknown as ParsedRow[]); });
       })
