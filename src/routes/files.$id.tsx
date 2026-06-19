@@ -157,7 +157,7 @@ function ReviewPage() {
           if (!alive) return;
           const next = (data ?? null) as unknown as SourceFile | null;
           setSf(next);
-          if (next && (next.status === "parsing" || next.status === "needs_review")) {
+          if (next?.status === "parsing") {
             scheduleRowsRefetch();
           }
         });
