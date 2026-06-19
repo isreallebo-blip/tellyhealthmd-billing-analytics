@@ -85,8 +85,10 @@ Deno.serve(async (req) => {
     }
 
     // Heavy work runs in the background so the UI can return to /files immediately.
-    // Mark the file as parsing so the list shows progress while claims_raw is rebuilt.
-    await db.from("source_files").update({ status: "parsing", error: null }).eq("id", source_file_id);
+    // We do NOT flip status back to "parsing" — re-parsing already happened once.
+    // The file stays as needs_review (or approved on re-publish) while claims_raw
+    // is rebuilt, and we only flip to "approved" when the background insert ends.
+
 
     const publishInBackground = async () => {
       try {
