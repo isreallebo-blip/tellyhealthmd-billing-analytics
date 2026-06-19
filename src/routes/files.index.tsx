@@ -444,7 +444,7 @@ function FilesPage() {
                       <Button variant="ghost" size="sm" asChild>
                         <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
                       </Button>
-                      {(f.status === "failed" || f.status === "parsing" || f.status === "queued") && (
+                      {f.status === "failed" && (
                         <Button
                           variant="ghost"
                           size="sm"

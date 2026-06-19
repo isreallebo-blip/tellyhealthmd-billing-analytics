@@ -30,6 +30,7 @@ function UploadPage() {
   const navigate = useNavigate();
   const [queue, setQueue] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = useCallback((files: FileList | File[] | null) => {
@@ -53,10 +54,13 @@ function UploadPage() {
   function removeFromQueue(idx: number) { setQueue((q) => q.filter((_, i) => i !== idx)); }
 
   async function submitAll() {
+    if (submitting) return;
     if (queue.length === 0) return toast.error("Add at least one file first");
+    setSubmitting(true);
     const { data: sessionData } = await supabase.auth.getSession();
     if (!sessionData.session) {
       toast.error("You're not signed in. Please sign in again.");
+      setSubmitting(false);
       return;
     }
     const files = queue.slice();
@@ -70,7 +74,7 @@ function UploadPage() {
     uploadManager.enqueue(files);
     setQueue([]);
     if (inputRef.current) inputRef.current.value = "";
-    toast.success(`${files.length} file${files.length === 1 ? "" : "s"} uploading in background`);
+    toast.success(`${files.length} file${files.length === 1 ? "" : "s"} added to Files`);
     navigate({ to: "/files" });
   }
 
@@ -156,9 +160,9 @@ function UploadPage() {
                 </p>
               </div>
 
-              <Button className="w-full" disabled={queue.length === 0 || !profile} onClick={submitAll}>
+              <Button className="w-full" disabled={queue.length === 0 || !profile || submitting} onClick={submitAll}>
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
-                {`Upload ${queue.length ? `(${queue.length})` : ""}`}
+                {submitting ? "Adding…" : `Upload ${queue.length ? `(${queue.length})` : ""}`}
               </Button>
 
               <p className="text-xs text-muted-foreground">
