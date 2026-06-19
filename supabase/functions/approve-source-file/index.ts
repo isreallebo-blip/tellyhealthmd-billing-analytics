@@ -115,12 +115,14 @@ Deno.serve(async (req) => {
 
       const toInsert: Record<string, any>[] = [];
       for (const r of page) {
+        if ((r as any).is_duplicate) { dupSkipped++; continue; }
         const d = (r.data ?? {}) as Record<string, any>;
         const acct = d.acct ?? null;
         const dos = d.dos ?? null;
         const cpt = d.cpt ? String(d.cpt).toUpperCase() : null;
         const company = d.company ?? sf.detected_company ?? null;
         if (!acct || !dos || !cpt || !company) { skipped++; continue; }
+
 
         const ref = cptMap.get(cpt);
         let billing_type = ref?.billing_type ?? null;
