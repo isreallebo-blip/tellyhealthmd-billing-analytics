@@ -152,10 +152,109 @@ function validate(def: FieldDef, value: any): string | null {
 type Row = Record<string, any>;
 const BATCH = 500;
 
-async function processInBackground(sourceFileId: string, rows: Row[], defs: FieldDef[]) {
+// ── LLM extraction for unstructured text (PDF/DOCX/TXT) ──
+async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<Row[]> {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
+
+  // Cap input to keep prompt within model limits (~120k chars ≈ 30k tokens)
+  const MAX = 120_000;
+  const clipped = text.length > MAX ? text.slice(0, MAX) : text;
+
+  const fieldDescriptions = defs.map((d) =>
+    `- ${d.field_key} (${d.data_type})${d.label !== d.field_key ? ` — ${d.label}` : ""}`
+  ).join("\n");
+
+  const properties: Record<string, any> = {};
+  for (const d of defs) {
+    const base: any =
+      d.data_type === "number" ? { type: ["number", "null"] }
+      : d.data_type === "bool" ? { type: ["boolean", "null"] }
+      : { type: ["string", "null"] };
+    if (d.data_type === "date") base.description = "ISO date YYYY-MM-DD";
+    properties[d.field_key] = base;
+  }
+
+  const tool = {
+    type: "function",
+    function: {
+      name: "emit_claim_rows",
+      description: "Emit one object per claim line found in the document.",
+      parameters: {
+        type: "object",
+        properties: {
+          rows: {
+            type: "array",
+            items: { type: "object", properties, additionalProperties: false },
+          },
+        },
+        required: ["rows"],
+        additionalProperties: false,
+      },
+    },
+  };
+
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You extract billing claim rows from medical / billing documents.",
+            "Return ONE row per CPT line per encounter. If a single visit has multiple CPTs, emit multiple rows that repeat the patient/visit info.",
+            "Use ISO YYYY-MM-DD for all dates. Use null for unknown values — never invent.",
+            "Available fields:",
+            fieldDescriptions,
+          ].join("\n"),
+        },
+        { role: "user", content: clipped },
+      ],
+      tools: [tool],
+      tool_choice: { type: "function", function: { name: "emit_claim_rows" } },
+    }),
+  });
+
+  if (resp.status === 429) throw new Error("AI rate limit hit — try again in a moment.");
+  if (resp.status === 402) throw new Error("AI credits exhausted — top up Lovable AI to continue.");
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error(`AI extraction failed (${resp.status}): ${t.slice(0, 300)}`);
+  }
+  const json = await resp.json();
+  const call = json?.choices?.[0]?.message?.tool_calls?.[0];
+  const argsStr = call?.function?.arguments;
+  if (!argsStr) throw new Error("AI returned no structured output");
+  let parsed: any;
+  try { parsed = JSON.parse(argsStr); }
+  catch { throw new Error("AI returned malformed JSON"); }
+  const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
+  return rows.filter((r: any) => r && typeof r === "object");
+}
+
+async function processInBackground(sourceFileId: string, rows: Row[], defs: FieldDef[], opts?: { text?: string; kind?: string }) {
   const db = adminClient();
   try {
-    await db.from("source_files").update({ status: "parsing", row_count: rows.length }).eq("id", sourceFileId);
+    await db.from("source_files").update({ status: "parsing" }).eq("id", sourceFileId);
+
+    // Unstructured path: run LLM extraction first
+    if (opts?.kind === "unstructured") {
+      if (!opts.text || opts.text.trim().length < 20) {
+        throw new Error("Document contains no extractable text.");
+      }
+      rows = await extractRowsFromText(opts.text, defs);
+      if (rows.length === 0) {
+        // Mark as needs_review with zero rows so the user can re-parse or adjust
+        await db.from("source_files").update({
+          status: "needs_review", row_count: 0,
+          error: "AI extracted no rows from this document.",
+        }).eq("id", sourceFileId);
+        return;
+      }
+    }
+    await db.from("source_files").update({ row_count: rows.length }).eq("id", sourceFileId);
 
     // Column mapping from union of headers
     const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r ?? {}))));
