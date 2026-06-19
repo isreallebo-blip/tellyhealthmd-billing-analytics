@@ -131,6 +131,8 @@ function Dashboard() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (debounce) clearTimeout(debounce);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
       supabase.removeChannel(channel);
     };
   }, [profile]);
