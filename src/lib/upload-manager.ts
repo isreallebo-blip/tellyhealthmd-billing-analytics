@@ -154,7 +154,7 @@ async function processOne(item: UploadItem, file: File) {
     const wb = XLSX.read(buf, { type: "array", cellDates: false });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = sheetToRows(XLSX, sheet);
-    const headers = Array.from(rows.reduce((set, row) => {
+    const headers = Array.from(rows.reduce<Set<string>>((set, row) => {
       Object.keys(row ?? {}).forEach((key) => set.add(key));
       return set;
     }, new Set<string>()));
