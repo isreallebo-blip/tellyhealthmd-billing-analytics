@@ -40,13 +40,11 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
     setTextPreview(null);
     (async () => {
       try {
-        const { data, error } = await supabase
-          .from("source_files" as any)
-          .select("file_bytes")
-          .eq("id", sourceFileId)
-          .maybeSingle();
+        const { data, error } = await (supabase as any)
+          .rpc("download_source_file", { _id: sourceFileId });
         if (error) throw error;
-        const raw = (data as any)?.file_bytes;
+        const row = Array.isArray(data) && data.length ? data[0] : null;
+        const raw = row?.file_bytes;
         if (!raw) throw new Error("Original file bytes not available.");
         const bytes = typeof raw === "string" ? hexToBytes(raw) : new Uint8Array(raw);
 

@@ -24,14 +24,13 @@ Deno.serve(async (req) => {
     const { action, target_table, target_id, source_file_id, row_count, details } = body ?? {};
     if (!action) return new Response(JSON.stringify({ error: "action required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const { error } = await userClient.from("phi_access_log").insert({
-      user_id: u.user.id,
-      action,
-      target_table: target_table ?? null,
-      target_id: target_id ?? null,
-      source_file_id: source_file_id ?? null,
-      row_count: row_count ?? null,
-      details: details ?? {},
+    const { error } = await userClient.rpc("log_phi_access", {
+      _action: action,
+      _target_table: target_table ?? null,
+      _target_id: target_id ?? null,
+      _source_file_id: source_file_id ?? null,
+      _row_count: row_count ?? null,
+      _details: details ?? {},
     });
     if (error) throw error;
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
