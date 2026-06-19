@@ -7,6 +7,7 @@
 
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -630,13 +631,9 @@ Deno.serve(async (req) => {
 
     let fileBytes: Uint8Array | null = null;
     if (file_b64) {
-      // Ticket 4: decode via a single Uint8Array+atob call instead of a
-      // per-byte loop. Scales cleanly if the embed cutoff is ever raised.
-      const bin = atob(file_b64);
-      const len = bin.length;
-      const buf = new Uint8Array(len);
-      for (let i = 0; i < len; i++) buf[i] = bin.charCodeAt(i) & 0xff;
-      fileBytes = buf;
+      // Ticket 4: use Deno's native base64 decoder (single typed-array allocation,
+      // no per-byte JS loop) so this scales if the embed cutoff is ever raised.
+      fileBytes = decodeBase64(file_b64);
     }
 
     const { data: sf, error: sfErr } = await db.from("source_files").insert({
