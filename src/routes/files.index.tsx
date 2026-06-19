@@ -417,12 +417,12 @@ function FilesPage() {
                     aria-label="Select all files"
                   />
                 </TableHead>
-                <TableHead>Filename</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Rows</TableHead>
-                <TableHead className="text-right">Size</TableHead>
-                <TableHead>Uploaded</TableHead>
+                <TableHead><SortHeader k="filename">Filename</SortHeader></TableHead>
+                <TableHead><SortHeader k="detected_company">Company</SortHeader></TableHead>
+                <TableHead><SortHeader k="status">Status</SortHeader></TableHead>
+                <TableHead className="text-right"><SortHeader k="row_count" className="justify-end">Rows</SortHeader></TableHead>
+                <TableHead className="text-right"><SortHeader k="size_bytes" className="justify-end">Size</SortHeader></TableHead>
+                <TableHead><SortHeader k="uploaded_at">Uploaded</SortHeader></TableHead>
                 <TableHead className="w-64 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
