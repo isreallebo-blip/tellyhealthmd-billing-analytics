@@ -355,24 +355,37 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { filename, mime, size_bytes, file_b64, rows } = body as {
-      filename: string; mime?: string; size_bytes?: number; file_b64?: string; rows: Row[];
+    const { filename, mime, size_bytes, file_b64, rows, text, kind } = body as {
+      filename: string; mime?: string; size_bytes?: number;
+      file_b64?: string;
+      rows?: Row[];
+      text?: string;
+      kind?: "structured" | "unstructured";
     };
-    if (!filename || !Array.isArray(rows)) {
-      return new Response(JSON.stringify({ error: "Invalid body" }), {
+    const fileKind: "structured" | "unstructured" = kind === "unstructured" ? "unstructured" : "structured";
+    if (!filename) {
+      return new Response(JSON.stringify({ error: "filename required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (fileKind === "structured" && !Array.isArray(rows)) {
+      return new Response(JSON.stringify({ error: "rows[] required for structured uploads" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (fileKind === "unstructured" && (!text || typeof text !== "string")) {
+      return new Response(JSON.stringify({ error: "text required for unstructured uploads" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const db = adminClient();
 
-    // Pull active field defs
     const { data: defs, error: defsErr } = await db
       .from("field_definitions").select("field_key,label,data_type,validation_regex,synonyms")
       .eq("is_active", true);
     if (defsErr) throw defsErr;
 
-    // Decode file bytes (base64)
     let fileBytes: Uint8Array | null = null;
     if (file_b64) {
       const bin = atob(file_b64);
@@ -380,7 +393,6 @@ Deno.serve(async (req) => {
       for (let i = 0; i < bin.length; i++) fileBytes[i] = bin.charCodeAt(i);
     }
 
-    // Create source_files row (RLS: insert as user via service_role bypass; we set uploaded_by explicitly)
     const { data: sf, error: sfErr } = await db.from("source_files").insert({
       uploaded_by: userId,
       filename,
@@ -388,7 +400,8 @@ Deno.serve(async (req) => {
       size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
       file_bytes: fileBytes,
       status: "queued",
-      row_count: rows.length,
+      row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
+      kind: fileKind,
     }).select("id").single();
     if (sfErr || !sf) {
       return new Response(JSON.stringify({ error: sfErr?.message ?? "Failed to record file" }), {
@@ -396,7 +409,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    const promise = processInBackground(sf.id, rows, (defs ?? []) as FieldDef[]);
+    const promise = processInBackground(
+      sf.id,
+      rows ?? [],
+      (defs ?? []) as FieldDef[],
+      { text, kind: fileKind },
+    );
     const er = (globalThis as any).EdgeRuntime;
     if (typeof er?.waitUntil === "function") er.waitUntil(promise);
     else await promise;
