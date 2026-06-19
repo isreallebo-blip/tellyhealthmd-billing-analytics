@@ -104,11 +104,11 @@ function ExportsPage() {
   }
 
   async function downloadJob(j: Job) {
-    const { data, error } = await supabase
-      .from("export_jobs" as any).select("file_bytes,filename").eq("id", j.id).maybeSingle();
-    if (error || !data) { toast.error(error?.message ?? "Download failed"); return; }
-    const raw: any = (data as any).file_bytes;
-    // Supabase returns bytea as hex string (\x...) or base64 depending on client
+    const { data, error } = await (supabase as any)
+      .rpc("download_export_job", { _job_id: j.id });
+    if (error || !data || !data.length) { toast.error(error?.message ?? "Download failed"); return; }
+    const row = data[0];
+    const raw: any = row.file_bytes;
     let bytes: Uint8Array;
     if (raw instanceof Uint8Array) bytes = raw;
     else if (typeof raw === "string" && raw.startsWith("\\x")) {
@@ -126,10 +126,9 @@ function ExportsPage() {
     const blob = new Blob([bytes as BlobPart], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = (data as any).filename ?? `export-${j.id}.csv`;
+    a.href = url; a.download = row.filename ?? `export-${j.id}.csv`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
-    logPhiAccess({ action: "export_download", target_table: "export_jobs", target_id: j.id });
   }
 
   async function removeJob(id: string) {
