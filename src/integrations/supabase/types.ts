@@ -925,6 +925,15 @@ export type Database = {
           filename: string
         }[]
       }
+      download_source_file: {
+        Args: { _id: string }
+        Returns: {
+          file_bytes: string
+          filename: string
+          kind: string
+          mime: string
+        }[]
+      }
       evaluate_alert_rules: { Args: never; Returns: Json }
       flag_duplicate_parsed_rows: {
         Args: { _source_file_id: string }
@@ -948,6 +957,17 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      log_phi_access: {
+        Args: {
+          _action: string
+          _details?: Json
+          _row_count?: number
+          _source_file_id?: string
+          _target_id?: string
+          _target_table?: string
+        }
+        Returns: undefined
       }
       user_has_company_access: {
         Args: { _company: string; _user_id: string }
