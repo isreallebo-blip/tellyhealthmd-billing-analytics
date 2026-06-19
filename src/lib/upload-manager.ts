@@ -62,7 +62,7 @@ function fileToBase64(file: Blob): Promise<string> {
   });
 }
 
-function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
+function sheetToRows(XLSX: typeof import("xlsx"), sheet: any): Record<string, any>[] {
   const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, {
     header: 1, defval: null, blankrows: false, raw: true,
   });
@@ -86,7 +86,7 @@ function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
   }
   const headerRow = aoa[headerIdx] ?? [];
   const seen = new Map<string, number>();
-  const headers: string[] = headerRow.map((c, i) => {
+  const headers: string[] = headerRow.map((c: any, i: number) => {
     let name = cellText(c);
     if (!name) name = `Column ${XLSX.utils.encode_col(i)}`;
     const n = seen.get(name) ?? 0;
@@ -96,7 +96,7 @@ function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
   const out: Record<string, any>[] = [];
   for (let r = headerIdx + 1; r < aoa.length; r++) {
     const row = aoa[r] ?? [];
-    if (row.every((c) => c == null || cellText(c) === "")) continue;
+    if (row.every((c: any) => c == null || cellText(c) === "")) continue;
     const obj: Record<string, any> = {};
     let any = false;
     for (let i = 0; i < headers.length; i++) {
@@ -111,6 +111,9 @@ function sheetToRows(sheet: XLSX.WorkSheet): Record<string, any>[] {
 
 async function processOne(item: UploadItem, file: File) {
   patchItem(item.id, { status: "uploading", startedAt: Date.now() });
+  // Dynamically import heavy libs so the progress dock doesn't ship them
+  // on every page load.
+  const { detectKind, extractUnstructuredText } = await import("@/lib/file-extract");
   const kind = detectKind(file.name);
   const embedBytes = file.size <= EMBED_BYTES_MAX;
   const payload: Record<string, any> = {
@@ -120,10 +123,11 @@ async function processOne(item: UploadItem, file: File) {
     kind,
   };
   if (kind === "structured") {
+    const XLSX = await import("xlsx");
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: false });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    payload.rows = sheetToRows(sheet);
+    payload.rows = sheetToRows(XLSX, sheet);
     if (embedBytes) payload.file_b64 = await fileToBase64(new Blob([buf]));
   } else {
     const [text, b64] = await Promise.all([
@@ -136,6 +140,7 @@ async function processOne(item: UploadItem, file: File) {
     payload.text = text;
     if (b64) payload.file_b64 = b64;
   }
+
 
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
