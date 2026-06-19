@@ -218,10 +218,10 @@ async function reparseInBackground(sourceFileId: string) {
     if (countErr) throw countErr;
     if ((count ?? 0) !== rows.length) throw new Error(`Only ${count ?? 0} of ${rows.length} rows were saved. Try Re-analyze again.`);
 
+    await db.from("source_files").update({ status: "needs_review" }).eq("id", sourceFileId);
+
     try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
     catch (e) { console.error("dedup flagging failed", e); }
-
-    await db.from("source_files").update({ status: "needs_review" }).eq("id", sourceFileId);
   } catch (err: any) {
     console.error("reparse bg failed", err);
     await db.from("source_files").update({

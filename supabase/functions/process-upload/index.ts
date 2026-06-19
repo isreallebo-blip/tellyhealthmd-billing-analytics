@@ -526,9 +526,9 @@ function finalizeStructuredParse(db: any, sourceFileId: string, totalRows: numbe
       if ((count ?? 0) !== totalRows) {
         throw new Error(`Only ${count ?? 0} of ${totalRows} rows were saved. Click Re-analyze to restart safely.`);
       }
+      await db.from("source_files").update({ status: "needs_review", row_count: totalRows, error: null }).eq("id", sourceFileId);
       try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
       catch (e) { console.error("dedup flagging failed", e); }
-      await db.from("source_files").update({ status: "needs_review", row_count: totalRows, error: null }).eq("id", sourceFileId);
     } catch (err: any) {
       console.error("structured finalize failed", err);
       await db.from("source_files").update({
