@@ -171,20 +171,31 @@ function UploadPage() {
     const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
 
     const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
       throw new Error("You're not signed in. Please sign in and try again.");
     }
-    const { data, error } = await supabase.functions.invoke("process-upload", {
-      body: { filename: file.name, rows },
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!supabaseUrl || !publishableKey) {
+      throw new Error("Upload service is not configured. Please reconnect the backend.");
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        apikey: publishableKey,
+      },
+      body: JSON.stringify({ filename: file.name, rows }),
     });
-    if (error) {
-      // Try to surface the underlying response body (edge functions return JSON { error })
-      let detail = error.message ?? "Failed to start upload";
-      try {
-        const ctx: any = (error as any).context;
-        if (ctx?.json) detail = (await ctx.json())?.error ?? detail;
-        else if (ctx?.text) detail = (await ctx.text()) ?? detail;
-      } catch { /* ignore */ }
+
+    const responseText = await response.text();
+    let data: any = null;
+    try { data = responseText ? JSON.parse(responseText) : null; } catch { /* keep text fallback */ }
+    if (!response.ok) {
+      const detail = data?.error ?? responseText ?? `Upload failed with status ${response.status}`;
       throw new Error(detail);
     }
     toast.success(`${file.name} queued — processing ${rows.length.toLocaleString()} rows in the background.`);
