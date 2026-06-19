@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, RefreshCw, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, RefreshCw, CheckCircle2, Loader2, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { SourceFilePreview } from "@/components/source-file-preview";
 import { logPhiAccess } from "@/lib/phi-log";
@@ -53,6 +53,7 @@ function ReviewPage() {
   const [busy, setBusy] = useState<"reparse" | "approve" | null>(null);
 
   const [hideDuplicates, setHideDuplicates] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   const ROW_SELECT = "id,row_index,source_row,data,confidence,validation_errors,edited,is_duplicate,duplicate_of_source_file_id";
   const SF_SELECT = "id,filename,status,row_count,detected_company,column_mapping,unmapped_columns,error";
@@ -296,16 +297,29 @@ function ReviewPage() {
           </Card>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
-            <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center justify-between">
-              <span className="font-medium text-foreground">Original file</span>
-              <span>read-only</span>
+        <div className={`grid grid-cols-1 ${showOriginal ? "xl:grid-cols-2" : ""} gap-6`}>
+          {showOriginal ? (
+            <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
+              <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center justify-between">
+                <span className="font-medium text-foreground">Original file</span>
+                <div className="flex items-center gap-2">
+                  <span>read-only</span>
+                  <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setShowOriginal(false)}>
+                    <ChevronLeft className="h-3.5 w-3.5 mr-1" /> Hide
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <SourceFilePreview sourceFileId={sf.id} filename={sf.filename} />
+              </div>
+            </Card>
+          ) : (
+            <div className="-mb-2 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setShowOriginal(true)}>
+                <ChevronRight className="h-3.5 w-3.5 mr-1" /> Show original file
+              </Button>
             </div>
-            <div className="flex-1 min-h-0">
-              <SourceFilePreview sourceFileId={sf.id} filename={sf.filename} />
-            </div>
-          </Card>
+          )}
 
           {rows.length > 0 ? (
             <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
