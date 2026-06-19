@@ -25,6 +25,7 @@ import { Route as AdminTemplatesRouteImport } from './routes/admin.templates'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminFieldsRouteImport } from './routes/admin.fields'
 import { Route as AdminCptRouteImport } from './routes/admin.cpt'
+import { Route as AdminAuditRouteImport } from './routes/admin.audit'
 
 const UploadRoute = UploadRouteImport.update({
   id: '/upload',
@@ -106,6 +107,11 @@ const AdminCptRoute = AdminCptRouteImport.update({
   path: '/admin/cpt',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/admin/audit',
+  path: '/admin/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -118,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/files': typeof FilesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/admin/audit': typeof AdminAuditRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -136,6 +143,7 @@ export interface FileRoutesByTo {
   '/files': typeof FilesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/admin/audit': typeof AdminAuditRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -155,6 +163,7 @@ export interface FileRoutesById {
   '/files': typeof FilesRouteWithChildren
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/admin/audit': typeof AdminAuditRoute
   '/admin/cpt': typeof AdminCptRoute
   '/admin/fields': typeof AdminFieldsRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -175,6 +184,7 @@ export interface FileRouteTypes {
     | '/files'
     | '/settings'
     | '/upload'
+    | '/admin/audit'
     | '/admin/cpt'
     | '/admin/fields'
     | '/admin/settings'
@@ -193,6 +203,7 @@ export interface FileRouteTypes {
     | '/files'
     | '/settings'
     | '/upload'
+    | '/admin/audit'
     | '/admin/cpt'
     | '/admin/fields'
     | '/admin/settings'
@@ -211,6 +222,7 @@ export interface FileRouteTypes {
     | '/files'
     | '/settings'
     | '/upload'
+    | '/admin/audit'
     | '/admin/cpt'
     | '/admin/fields'
     | '/admin/settings'
@@ -230,6 +242,7 @@ export interface RootRouteChildren {
   FilesRoute: typeof FilesRouteWithChildren
   SettingsRoute: typeof SettingsRoute
   UploadRoute: typeof UploadRoute
+  AdminAuditRoute: typeof AdminAuditRoute
   AdminCptRoute: typeof AdminCptRoute
   AdminFieldsRoute: typeof AdminFieldsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
@@ -351,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCptRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/admin/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -375,6 +395,7 @@ const rootRouteChildren: RootRouteChildren = {
   FilesRoute: FilesRouteWithChildren,
   SettingsRoute: SettingsRoute,
   UploadRoute: UploadRoute,
+  AdminAuditRoute: AdminAuditRoute,
   AdminCptRoute: AdminCptRoute,
   AdminFieldsRoute: AdminFieldsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
