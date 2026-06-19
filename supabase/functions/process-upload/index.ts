@@ -1,6 +1,9 @@
 // Edge function: process-upload
-// Accepts parsed Excel rows, creates an upload_jobs row, then processes rows
-// in the background (EdgeRuntime.waitUntil) so the browser can navigate away.
+// New flow: client uploads file bytes + pre-parsed rows. We:
+//   1. Persist the original bytes in source_files (immutable record).
+//   2. Map columns -> field_definitions registry, compute confidence.
+//   3. Normalize + validate each row, write to parsed_rows for human review.
+// Approval happens in a separate function (approve-source-file).
 
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -14,319 +17,216 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const PUBLISHABLE_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY")!;
 
-type Row = Record<string, any>;
-
 function collectSecretCandidates(value: unknown, out: string[] = []): string[] {
   if (!value) return out;
   if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return out;
-    try { collectSecretCandidates(JSON.parse(trimmed), out); } catch { /* not JSON */ }
-    out.push(trimmed);
-    trimmed.split(/[\n,]/).map((part) => part.trim()).filter(Boolean).forEach((part) => out.push(part));
+    const t = value.trim(); if (!t) return out;
+    try { collectSecretCandidates(JSON.parse(t), out); } catch {}
+    out.push(t);
+    t.split(/[\n,]/).map((p) => p.trim()).filter(Boolean).forEach((p) => out.push(p));
     return out;
   }
-  if (Array.isArray(value)) value.forEach((item) => collectSecretCandidates(item, out));
-  else if (typeof value === "object") Object.values(value).forEach((item) => collectSecretCandidates(item, out));
+  if (Array.isArray(value)) value.forEach((i) => collectSecretCandidates(i, out));
+  else if (typeof value === "object") Object.values(value).forEach((i) => collectSecretCandidates(i, out));
   return out;
 }
-
-function jwtRole(token: string): string | null {
-  if (token.split(".").length !== 3) return null;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role ?? null;
-  } catch { return null; }
+function jwtRole(t: string): string | null {
+  if (t.split(".").length !== 3) return null;
+  try { return JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")))?.role ?? null; }
+  catch { return null; }
 }
-
 function getServiceRoleKey(): string | null {
-  const candidates = [
+  const c = [
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")),
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEY")),
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEYS")),
   ];
-  return candidates.find((candidate) => jwtRole(candidate) === "service_role") ?? null;
+  return c.find((k) => jwtRole(k) === "service_role") ?? null;
+}
+function adminClient() {
+  const k = getServiceRoleKey();
+  if (k) return createClient(SUPABASE_URL, k, { auth: { persistSession: false } });
+  return createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { persistSession: false } });
 }
 
-function createDbClient(authHeader?: string) {
-  const serviceRoleKey = getServiceRoleKey();
-  if (serviceRoleKey) return createClient(SUPABASE_URL, serviceRoleKey, { auth: { persistSession: false } });
-  return createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
-    global: authHeader ? { headers: { Authorization: authHeader } } : undefined,
-    auth: { persistSession: false },
-  });
+// ── normalizers ──
+function normText(v: any): string | null {
+  if (v == null) return null;
+  const s = String(v).trim(); return s === "" ? null : s;
 }
-
-function parseDate(v: any): string | null {
+function normDate(v: any): string | null {
   if (v == null || v === "") return null;
   if (typeof v === "number") {
-    // Excel serial date
-    const o = new Date(Math.round((v - 25569) * 86400 * 1000));
-    if (isNaN(o.getTime())) return null;
-    return o.toISOString().slice(0, 10);
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
   }
   const d = new Date(v);
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
-function parseNum(v: any): number | null {
+function normNum(v: any): number | null {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
   return isNaN(n) ? null : n;
 }
-function parseBool(v: any): boolean {
+function normBool(v: any): boolean {
   if (v == null || v === "") return false;
   if (typeof v === "boolean") return v;
   const s = String(v).trim().toLowerCase();
   return s === "true" || s === "yes" || s === "y" || s === "1" || s === "denied";
 }
 
-type Normalized = {
-  rowIndex: number;
-  company: string;
-  acct: string;
-  dos: string;
-  cpt: string;
-  payload: Record<string, any>;
-  revenue: number | null;
-  pay_date: string | null;
-  days_to_pmt: number | null;
-  denied_claim: boolean;
+// Levenshtein for fuzzy header matching
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n; if (n === 0) return m;
+  const dp = new Array(n + 1);
+  for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = i - 1, cur = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      cur = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      dp[j - 1] = cur === undefined ? dp[j - 1] : (j === 1 ? i : dp[j - 1]);
+      dp[j] = cur; prev = tmp;
+    }
+  }
+  return dp[n];
+}
+function norm(s: string) { return s.toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+
+type FieldDef = {
+  field_key: string; label: string; data_type: string;
+  validation_regex: string | null; synonyms: string[];
 };
 
-const BATCH_SIZE = 500;
-
-async function processRows(jobId: string, userId: string, filename: string, rows: Row[], authHeader: string) {
-  const admin = createDbClient(authHeader);
-
-  let inserted = 0, updated = 0, skipped = 0, unknownCpt = 0, processed = 0;
-  const errors: string[] = [];
-  const perCompany: Record<string, {
-    processed: number; inserted: number; updated: number; skipped: number; unknownCpt: number;
-    skippedRows: { acct: string; dos: string; cpt: string; company: string; reason: string }[];
-    unknownCpts: Record<string, number>;
-    uploadHistoryId?: string;
-  }> = {};
-
-  function ensureCompanyState(company: string) {
-    if (!perCompany[company]) {
-      perCompany[company] = { processed: 0, inserted: 0, updated: 0, skipped: 0, unknownCpt: 0, skippedRows: [], unknownCpts: {} };
-    }
-    return perCompany[company];
+function mapColumn(header: string, defs: FieldDef[]): { field: string | null; confidence: number } {
+  const h = norm(header);
+  if (!h) return { field: null, confidence: 0 };
+  // exact field_key
+  for (const d of defs) if (norm(d.field_key) === h) return { field: d.field_key, confidence: 1.0 };
+  // exact synonym / label
+  for (const d of defs) {
+    const all = [d.label, ...d.synonyms];
+    for (const a of all) if (norm(a) === h) return { field: d.field_key, confidence: 1.0 };
   }
+  // fuzzy (Levenshtein <= 2)
+  let best: { field: string | null; dist: number; len: number } = { field: null, dist: Infinity, len: 0 };
+  for (const d of defs) {
+    const all = [d.field_key, d.label, ...d.synonyms];
+    for (const a of all) {
+      const na = norm(a); if (!na) continue;
+      const dist = levenshtein(h, na);
+      if (dist < best.dist) best = { field: d.field_key, dist, len: na.length };
+    }
+  }
+  if (best.field && best.dist <= 2 && best.len >= 3) {
+    return { field: best.field, confidence: best.dist === 0 ? 1.0 : best.dist === 1 ? 0.85 : 0.7 };
+  }
+  return { field: null, confidence: 0 };
+}
 
+function normalizeByType(t: string, v: any) {
+  switch (t) {
+    case "date": return normDate(v);
+    case "number": return normNum(v);
+    case "bool": return normBool(v);
+    case "cpt":
+    case "icd10":
+    case "text":
+    default: return normText(v);
+  }
+}
+function validate(def: FieldDef, value: any): string | null {
+  if (value == null || value === "") return null; // null is allowed at validation level
+  if (def.data_type === "number" && typeof value !== "number") return "Not a number";
+  if (def.data_type === "date" && typeof value !== "string") return "Not a date";
+  if (def.validation_regex) {
+    try {
+      const re = new RegExp(def.validation_regex);
+      if (!re.test(String(value))) return `Does not match ${def.field_key} format`;
+    } catch {}
+  }
+  return null;
+}
+
+type Row = Record<string, any>;
+const BATCH = 500;
+
+async function processInBackground(sourceFileId: string, rows: Row[], defs: FieldDef[]) {
+  const db = adminClient();
   try {
-    const [{ data: cptRef }, { data: overrides }] = await Promise.all([
-      admin.from("cpt_reference").select("cpt_code,service_category,billing_type"),
-      admin.from("cpt_insurance_overrides").select("cpt_code,insurance_code,billing_type_override"),
-    ]);
-    const cptMap = new Map<string, { service_category: string | null; billing_type: string | null }>();
-    cptRef?.forEach((r: any) =>
-      cptMap.set(String(r.cpt_code).toUpperCase(), { service_category: r.service_category, billing_type: r.billing_type })
-    );
-    const overrideMap = new Map<string, string>();
-    overrides?.forEach((r: any) =>
-      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
-    );
+    await db.from("source_files").update({ status: "parsing", row_count: rows.length }).eq("id", sourceFileId);
 
-    // ── Phase 1: normalize every row in memory ──
-    const normalized: Normalized[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      processed++;
-      try {
-        const company = String(r["Company"] ?? "").trim();
-        if (!company) { skipped++; continue; }
-        const cs = ensureCompanyState(company);
-        cs.processed++;
+    // Column mapping from union of headers
+    const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r ?? {}))));
+    const mapping: Record<string, { field: string | null; confidence: number }> = {};
+    const unmapped: string[] = [];
+    for (const h of headers) {
+      const m = mapColumn(h, defs);
+      mapping[h] = m;
+      if (!m.field) unmapped.push(h);
+    }
+    const defByKey = new Map(defs.map((d) => [d.field_key, d]));
+    let detectedCompany: string | null = null;
 
-        const cpt = String(r["CPT"] ?? "").trim().toUpperCase();
-        const pri_ins = String(r["Pri_Ins"] ?? "").trim().toUpperCase();
-        const acct = String(r["Acct"] ?? "").trim();
-        const dos = parseDate(r["DOS"]);
-        if (!acct || !dos || !cpt) { skipped++; cs.skipped++; continue; }
-
-        const ref = cptMap.get(cpt);
-        let billing_type = ref?.billing_type ?? null;
-        const service_category = ref?.service_category ?? null;
-        if (!ref) {
-          unknownCpt++; cs.unknownCpt++;
-          cs.unknownCpts[cpt] = (cs.unknownCpts[cpt] ?? 0) + 1;
+    // detect company from first non-empty row
+    for (const r of rows) {
+      for (const [h, m] of Object.entries(mapping)) {
+        if (m.field === "company") {
+          const v = normText((r as any)[h]);
+          if (v) { detectedCompany = v; break; }
         }
-        const ov = overrideMap.get(`${cpt}|${pri_ins}`);
-        if (ov) billing_type = ov;
-        const is_primary_billable = ref ? billing_type === "Primary" : true;
+      }
+      if (detectedCompany) break;
+    }
 
-        const revenue = parseNum(r["Revenue"]);
-        const days_to_pmt = parseNum(r["DaysToPmt"]);
-        const pay_date = parseDate(r["paydate"]);
-        const denied_claim = parseBool(r["Denied Claim"]);
+    await db.from("source_files").update({
+      column_mapping: mapping,
+      unmapped_columns: unmapped,
+      detected_company: detectedCompany,
+    }).eq("id", sourceFileId);
 
-        const payload: Record<string, any> = {
-          company,
-          pt_name: r["PT Name"] ?? null,
-          dob: parseDate(r["DOB"]),
-          pri_ins,
-          prov_code: r["Prov"] ?? null,
-          prov_name: r["Prov Name"] ?? null,
-          dos, cpt,
-          avg_days_to_pmt: parseNum(r["AvgDsToPmt"]),
-          days_to_pmt,
-          visit_type: r["Visit Type"] ?? null,
-          revenue, pay_date, denied_claim,
-          mrn: r["MRN"] ?? null,
-          acct,
-          service_category,
-          is_primary_billable,
+    // Wipe any prior parsed rows (re-parse path)
+    await db.from("parsed_rows").delete().eq("source_file_id", sourceFileId);
+
+    for (let start = 0; start < rows.length; start += BATCH) {
+      const batch = rows.slice(start, start + BATCH).map((r, idx) => {
+        const data: Record<string, any> = {};
+        const confidence: Record<string, number> = {};
+        const errs: Record<string, string> = {};
+        for (const [h, m] of Object.entries(mapping)) {
+          if (!m.field) continue;
+          const def = defByKey.get(m.field); if (!def) continue;
+          const norm = normalizeByType(def.data_type, (r as any)[h]);
+          data[m.field] = norm;
+          const err = validate(def, norm);
+          confidence[m.field] = err ? 0 : m.confidence;
+          if (err) errs[m.field] = err;
+        }
+        return {
+          source_file_id: sourceFileId,
+          row_index: start + idx,
+          source_row: start + idx + 2,
+          data,
+          raw_data: r,
+          confidence,
+          validation_errors: errs,
         };
-
-        normalized.push({ rowIndex: i, company, acct, dos, cpt, payload, revenue, pay_date, days_to_pmt, denied_claim });
-      } catch (err: any) {
-        errors.push(`Row ${i + 2}: ${err?.message ?? "error"}`);
-      }
-    }
-
-    // ── Phase 2: ensure upload_history row for every company seen ──
-    const companies = Object.keys(perCompany);
-    await Promise.all(companies.map(async (company) => {
-      const cs = perCompany[company];
-      const { data } = await admin.from("upload_history").insert({
-        filename, company, uploaded_by: userId,
-        rows_processed: 0, rows_inserted: 0, rows_updated: 0, rows_skipped: 0, unknown_cpt_count: 0,
-      }).select("id").single();
-      if (data) cs.uploadHistoryId = data.id;
-    }));
-
-    // ── Phase 3: process in batches of BATCH_SIZE ──
-    let lastProgressAt = 0;
-    for (let start = 0; start < normalized.length; start += BATCH_SIZE) {
-      const batch = normalized.slice(start, start + BATCH_SIZE);
-
-      // Bulk lookup existing rows for the batch.
-      // Multi-column IN isn't supported via PostgREST, so we filter by the
-      // distinct values per column and de-dup client-side using a composite key.
-      const accts = Array.from(new Set(batch.map((b) => b.acct)));
-      const doses = Array.from(new Set(batch.map((b) => b.dos)));
-      const cpts = Array.from(new Set(batch.map((b) => b.cpt)));
-      const companiesInBatch = Array.from(new Set(batch.map((b) => b.company)));
-
-      const { data: existingRows, error: lookupErr } = await admin
-        .from("claims_raw")
-        .select("id,acct,dos,cpt,company,revenue")
-        .in("company", companiesInBatch)
-        .in("acct", accts)
-        .in("dos", doses)
-        .in("cpt", cpts);
-      if (lookupErr) throw lookupErr;
-
-      const existingMap = new Map<string, { id: string; revenue: number | null }>();
-      (existingRows ?? []).forEach((r: any) => {
-        existingMap.set(`${r.company}|${r.acct}|${r.dos}|${r.cpt}`, { id: r.id, revenue: r.revenue });
       });
-
-      const toInsert: Record<string, any>[] = [];
-      const toUpdate: { id: string; revenue: number | null; pay_date: string | null; days_to_pmt: number | null; denied_claim: boolean; uploadHistoryId: string | undefined; item: Normalized }[] = [];
-
-      for (const item of batch) {
-        const cs = ensureCompanyState(item.company);
-        const uploadHistoryId = cs.uploadHistoryId;
-        const key = `${item.company}|${item.acct}|${item.dos}|${item.cpt}`;
-        const existing = existingMap.get(key);
-
-        if (!existing) {
-          toInsert.push({ ...item.payload, upload_id: uploadHistoryId });
-        } else {
-          const oldRev = existing.revenue;
-          const hasNewPmt = item.revenue != null && (oldRev == null || Number(oldRev) === 0);
-          if (hasNewPmt) {
-            toUpdate.push({
-              id: existing.id,
-              revenue: item.revenue,
-              pay_date: item.pay_date,
-              days_to_pmt: item.days_to_pmt,
-              denied_claim: item.denied_claim,
-              uploadHistoryId,
-              item,
-            });
-          } else {
-            skipped++; cs.skipped++;
-            cs.skippedRows.push({ acct: item.acct, dos: item.dos, cpt: item.cpt, company: item.company, reason: "Duplicate - no new payment" });
-          }
-        }
-      }
-
-      // Bulk insert new rows
-      if (toInsert.length) {
-        const { error: insErr } = await admin.from("claims_raw").insert(toInsert);
-        if (insErr) {
-          errors.push(`Batch insert (${toInsert.length} rows): ${insErr.message}`);
-        } else {
-          inserted += toInsert.length;
-          for (const row of toInsert) {
-            const cs = ensureCompanyState(row.company);
-            cs.inserted++;
-          }
-        }
-      }
-
-      // Per-row updates (rare path)
-      for (const u of toUpdate) {
-        const cs = ensureCompanyState(u.item.company);
-        const { error: upErr } = await admin
-          .from("claims_raw")
-          .update({
-            revenue: u.revenue,
-            pay_date: u.pay_date,
-            days_to_pmt: u.days_to_pmt,
-            denied_claim: u.denied_claim,
-            last_updated_upload_id: u.uploadHistoryId,
-          })
-          .eq("id", u.id);
-        if (upErr) {
-          errors.push(`Row ${u.item.rowIndex + 2} update: ${upErr.message}`);
-        } else {
-          updated++; cs.updated++;
-          cs.skippedRows.push({ acct: u.item.acct, dos: u.item.dos, cpt: u.item.cpt, company: u.item.company, reason: "Duplicate - updated" });
-        }
-      }
-
-      const now = Date.now();
-      if (now - lastProgressAt > 1000 || start + BATCH_SIZE >= normalized.length) {
-        lastProgressAt = now;
-        await admin.from("upload_jobs").update({
-          processed_rows: Math.min(start + BATCH_SIZE, normalized.length),
-          inserted, updated, skipped, unknown_cpt: unknownCpt,
-        }).eq("id", jobId);
-      }
+      const { error } = await db.from("parsed_rows").insert(batch);
+      if (error) throw error;
     }
 
-    // Finalize per-company upload_history rows
-    await Promise.all(Object.entries(perCompany).map(async ([_c, s]) => {
-      if (!s.uploadHistoryId) return;
-      await admin.from("upload_history").update({
-        rows_processed: s.processed,
-        rows_inserted: s.inserted,
-        rows_updated: s.updated,
-        rows_skipped: s.skipped,
-        unknown_cpt_count: s.unknownCpt,
-        skipped_rows: s.skippedRows.slice(0, 5000),
-        unknown_cpts: s.unknownCpts,
-      }).eq("id", s.uploadHistoryId);
-    }));
-
-    await admin.from("upload_jobs").update({
-      status: "complete",
-      processed_rows: processed, inserted, updated, skipped, unknown_cpt: unknownCpt,
-      error_message: errors.length ? `${errors.length} row errors. First: ${errors[0]}` : null,
-      completed_at: new Date().toISOString(),
-    }).eq("id", jobId);
+    await db.from("source_files").update({
+      status: "needs_review",
+      row_count: rows.length,
+    }).eq("id", sourceFileId);
   } catch (err: any) {
-    await admin.from("upload_jobs").update({
-      status: "error",
-      processed_rows: processed, inserted, updated, skipped, unknown_cpt: unknownCpt,
-      error_message: err?.message ?? "Processing failed",
-      completed_at: new Date().toISOString(),
-    }).eq("id", jobId);
+    console.error("process-upload bg failed", err);
+    await db.from("source_files").update({
+      status: "failed",
+      error: err?.message ?? "Processing failed",
+    }).eq("id", sourceFileId);
   }
 }
 
@@ -337,9 +237,7 @@ Deno.serve(async (req) => {
       status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-
   try {
-    // Verify the caller
     const authHeader = req.headers.get("Authorization") ?? "";
     const userClient = createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
       global: { headers: { Authorization: authHeader } },
@@ -354,37 +252,53 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { filename, rows } = body as { filename: string; rows: Row[] };
+    const { filename, mime, size_bytes, file_b64, rows } = body as {
+      filename: string; mime?: string; size_bytes?: number; file_b64?: string; rows: Row[];
+    };
     if (!filename || !Array.isArray(rows)) {
       return new Response(JSON.stringify({ error: "Invalid body" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const admin = createDbClient(authHeader);
-    const { data: job, error: jobErr } = await admin.from("upload_jobs").insert({
-      user_id: userId,
+    const db = adminClient();
+
+    // Pull active field defs
+    const { data: defs, error: defsErr } = await db
+      .from("field_definitions").select("field_key,label,data_type,validation_regex,synonyms")
+      .eq("is_active", true);
+    if (defsErr) throw defsErr;
+
+    // Decode file bytes (base64)
+    let fileBytes: Uint8Array | null = null;
+    if (file_b64) {
+      const bin = atob(file_b64);
+      fileBytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) fileBytes[i] = bin.charCodeAt(i);
+    }
+
+    // Create source_files row (RLS: insert as user via service_role bypass; we set uploaded_by explicitly)
+    const { data: sf, error: sfErr } = await db.from("source_files").insert({
+      uploaded_by: userId,
       filename,
-      status: "processing",
-      total_rows: rows.length,
+      mime: mime ?? null,
+      size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
+      file_bytes: fileBytes,
+      status: "queued",
+      row_count: rows.length,
     }).select("id").single();
-    if (jobErr || !job) {
-      return new Response(JSON.stringify({ error: jobErr?.message ?? "Failed to create job" }), {
+    if (sfErr || !sf) {
+      return new Response(JSON.stringify({ error: sfErr?.message ?? "Failed to record file" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Prefer background processing when the runtime supports it. If not, run
-    // inline instead of throwing a 500 after the job row has already been made.
-    const processingPromise = processRows(job.id, userId, filename, rows, authHeader);
-    const edgeRuntime = (globalThis as any).EdgeRuntime;
-    if (typeof edgeRuntime?.waitUntil === "function") {
-      edgeRuntime.waitUntil(processingPromise);
-    } else {
-      await processingPromise;
-    }
+    const promise = processInBackground(sf.id, rows, (defs ?? []) as FieldDef[]);
+    const er = (globalThis as any).EdgeRuntime;
+    if (typeof er?.waitUntil === "function") er.waitUntil(promise);
+    else await promise;
 
-    return new Response(JSON.stringify({ jobId: job.id }), {
+    return new Response(JSON.stringify({ source_file_id: sf.id }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
