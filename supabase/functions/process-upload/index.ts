@@ -493,9 +493,25 @@ async function insertRowsChunk(db: any, sourceFileId: string, rows: Row[], defs:
     return { source_file_id: sourceFileId, row_index: startIndex + idx, source_row: startIndex + idx + 2, data, confidence, validation_errors: errs };
   });
   if (!parsed.length) return;
-  await db.from("parsed_rows").delete().eq("source_file_id", sourceFileId).gte("row_index", startIndex).lt("row_index", startIndex + parsed.length);
+  const deleteRange = async (from: number, to: number) => {
+    const { error } = await db.from("parsed_rows")
+      .delete()
+      .eq("source_file_id", sourceFileId)
+      .gte("row_index", from)
+      .lt("row_index", to);
+    if (error) throw error;
+  };
+  await deleteRange(startIndex, startIndex + parsed.length);
   for (let start = 0; start < parsed.length; start += BATCH) {
-    await insertWithRetry(db, parsed.slice(start, start + BATCH));
+    const slice = parsed.slice(start, start + BATCH);
+    try {
+      await insertWithRetry(db, slice);
+    } catch (error: any) {
+      if (error?.code !== "23505") throw error;
+      const first = startIndex + start;
+      await deleteRange(first, first + slice.length);
+      await insertWithRetry(db, slice);
+    }
   }
 }
 
@@ -636,20 +652,50 @@ Deno.serve(async (req) => {
       fileBytes = decodeBase64(file_b64);
     }
 
-    const { data: sf, error: sfErr } = await db.from("source_files").insert({
-      uploaded_by: userId,
-      filename,
-      mime: mime ?? null,
-      size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
-      file_bytes: fileBytes ? bytesToPostgresBytea(fileBytes) : null,
-      status: "queued",
-      row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
-      kind: fileKind,
-    }).select("id").single();
-    if (sfErr || !sf) {
-      return new Response(JSON.stringify({ error: sfErr?.message ?? "Failed to record file" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const requestedId = upload_mode === "start_structured" && source_file_id ? source_file_id : null;
+    let sf: { id: string } | null = null;
+    if (requestedId) {
+      const { data: existing } = await userClient.from("source_files").select("id").eq("id", requestedId).maybeSingle();
+      if (existing) {
+        const { error: updateErr } = await db.from("source_files").update({
+          filename,
+          mime: mime ?? null,
+          size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
+          file_bytes: fileBytes ? bytesToPostgresBytea(fileBytes) : null,
+          status: "queued",
+          row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
+          kind: fileKind,
+        }).eq("id", requestedId);
+        if (updateErr) throw updateErr;
+        sf = { id: requestedId };
+      } else {
+        const { data: created, error: createErr } = await db.from("source_files").insert({
+          id: requestedId,
+          uploaded_by: userId,
+          filename,
+          mime: mime ?? null,
+          size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
+          file_bytes: fileBytes ? bytesToPostgresBytea(fileBytes) : null,
+          status: "queued",
+          row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
+          kind: fileKind,
+        }).select("id").single();
+        if (createErr || !created) throw createErr ?? new Error("Failed to record file");
+        sf = created;
+      }
+    } else {
+      const { data: created, error: createErr } = await db.from("source_files").insert({
+        uploaded_by: userId,
+        filename,
+        mime: mime ?? null,
+        size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
+        file_bytes: fileBytes ? bytesToPostgresBytea(fileBytes) : null,
+        status: "queued",
+        row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
+        kind: fileKind,
+      }).select("id").single();
+      if (createErr || !created) throw createErr ?? new Error("Failed to record file");
+      sf = created;
     }
 
     if (upload_mode === "start_structured") {

@@ -65,6 +65,8 @@ function ReviewPage() {
   useEffect(() => {
     let alive = true;
     let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let rowsFetchInFlight = false;
 
     // 1) Load metadata first so the page paints immediately
     (async () => {
@@ -86,6 +88,8 @@ function ReviewPage() {
 
     // 2) Stream rows in parallel pages, appending as they arrive
     async function loadRows() {
+      if (rowsFetchInFlight) return;
+      rowsFetchInFlight = true;
       setRowsLoading(true);
       setRowsLoaded(0);
       const PAGE = 1000;
@@ -136,6 +140,7 @@ function ReviewPage() {
       } catch (e: any) {
         if (alive) toast.error(e?.message ?? "Failed to load parsed rows");
       } finally {
+        rowsFetchInFlight = false;
         if (alive) setRowsLoading(false);
       }
     }
@@ -145,6 +150,18 @@ function ReviewPage() {
       if (refetchTimer) return;
       refetchTimer = setTimeout(() => { refetchTimer = null; loadRows(); }, 800);
     }
+
+    pollTimer = setInterval(() => {
+      supabase.from("source_files" as any).select(SF_SELECT).eq("id", id).maybeSingle()
+        .then(({ data }) => {
+          if (!alive) return;
+          const next = (data ?? null) as unknown as SourceFile | null;
+          setSf(next);
+          if (next && (next.status === "parsing" || next.status === "needs_review")) {
+            scheduleRowsRefetch();
+          }
+        });
+    }, 2500);
 
     const ch = supabase
       .channel(`review-${id}`)
@@ -157,6 +174,7 @@ function ReviewPage() {
     return () => {
       alive = false;
       if (refetchTimer) clearTimeout(refetchTimer);
+      if (pollTimer) clearInterval(pollTimer);
       supabase.removeChannel(ch);
     };
   }, [id]);

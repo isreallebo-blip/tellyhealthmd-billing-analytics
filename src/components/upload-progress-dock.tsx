@@ -70,6 +70,11 @@ export function UploadProgressDock() {
                 {it.status === "error" && it.error && (
                   <div className="truncate text-destructive">{it.error}</div>
                 )}
+                {it.status === "uploading" && it.totalRows && (
+                  <div className="text-muted-foreground tabular-nums">
+                    {`${(it.processedRows ?? 0).toLocaleString()} / ${it.totalRows.toLocaleString()} rows`}
+                  </div>
+                )}
                 {it.status === "done" && it.sourceFileId && (
                   <Link
                     to="/files/$id"
