@@ -116,6 +116,7 @@ function FilesPage() {
     toast.success(`Exported ${rows.length} rows`);
   }
 
+  async function refresh() {
     const { data } = await supabase
       .from("source_files" as any)
       .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
