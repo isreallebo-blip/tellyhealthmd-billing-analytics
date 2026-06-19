@@ -310,3 +310,106 @@ function ReviewPage() {
     </>
   );
 }
+
+// Virtualized parsed-rows grid — renders only the ~30 rows visible in the
+// scroll viewport regardless of dataset size, so 10k+ rows stay snappy.
+function VirtualizedParsedRows({
+  rows, fields, onSaveCell,
+}: {
+  rows: ParsedRow[];
+  fields: FieldDef[];
+  onSaveCell: (rowId: string, field: string, value: any) => void;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 40,
+    overscan: 12,
+  });
+
+  const colTemplate = `48px 36px ${fields.map(() => "minmax(140px, 1fr)").join(" ")}`;
+
+  return (
+    <div ref={parentRef} className="overflow-auto flex-1 min-h-0">
+      <div style={{ minWidth: `${48 + 36 + fields.length * 140}px` }}>
+        <div
+          className="sticky top-0 z-10 bg-background border-b grid items-center text-xs text-muted-foreground font-medium"
+          style={{ gridTemplateColumns: colTemplate }}
+        >
+          <div className="px-2 py-2 text-right">#</div>
+          <div />
+          {fields.map((d) => (
+            <div key={d.field_key} className="px-2 py-2 whitespace-nowrap">{d.label}</div>
+          ))}
+        </div>
+        <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
+          {rowVirtualizer.getVirtualItems().map((vi) => {
+            const r = rows[vi.index];
+            return (
+              <div
+                key={r.id}
+                className={[
+                  "grid items-center border-b",
+                  r.edited ? "bg-primary/5" : "",
+                  r.is_duplicate ? "opacity-60 bg-muted/30" : "",
+                ].join(" ")}
+                style={{
+                  gridTemplateColumns: colTemplate,
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${vi.start}px)`,
+                  height: `${vi.size}px`,
+                }}
+              >
+                <div className="px-2 text-right text-xs text-muted-foreground tabular-nums">
+                  {r.source_row ?? r.row_index + 2}
+                </div>
+                <div className="px-1">
+                  {r.is_duplicate && (
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] font-medium px-1.5 py-0 h-5"
+                      title={
+                        r.duplicate_of_source_file_id
+                          ? "Already exists in a previously approved file — will be skipped on Approve."
+                          : "Duplicate of an earlier row in this same file — will be skipped on Approve."
+                      }
+                    >
+                      DUP
+                    </Badge>
+                  )}
+                </div>
+                {fields.map((d) => {
+                  const value = r.data?.[d.field_key] ?? "";
+                  const conf = r.confidence?.[d.field_key] ?? 1;
+                  const err = r.validation_errors?.[d.field_key];
+                  const cls = err
+                    ? "bg-destructive/10 border-destructive/40"
+                    : conf < 0.7
+                      ? "bg-amber-500/10 border-amber-500/40"
+                      : "border-transparent";
+                  return (
+                    <div key={d.field_key} className="px-1">
+                      <Input
+                        // key includes the value so external refetches (during parsing) reset the input
+                        key={`${r.id}-${d.field_key}-${String(value)}`}
+                        defaultValue={value === null ? "" : String(value)}
+                        onBlur={(e) => onSaveCell(r.id, d.field_key, e.target.value === "" ? null : e.target.value)}
+                        className={`h-8 text-sm border ${cls}`}
+                        title={err ?? (conf < 0.7 ? `Confidence ${(conf * 100).toFixed(0)}%` : undefined)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
