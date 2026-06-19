@@ -81,6 +81,48 @@ export type Database = {
           },
         ]
       }
+      alert_rules: {
+        Row: {
+          config: Json
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          last_evaluated_at: string | null
+          name: string
+          rule_type: Database["public"]["Enums"]["alert_rule_type"]
+          severity: Database["public"]["Enums"]["alert_severity"]
+          updated_at: string
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          last_evaluated_at?: string | null
+          name: string
+          rule_type: Database["public"]["Enums"]["alert_rule_type"]
+          severity?: Database["public"]["Enums"]["alert_severity"]
+          updated_at?: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          last_evaluated_at?: string | null
+          name?: string
+          rule_type?: Database["public"]["Enums"]["alert_rule_type"]
+          severity?: Database["public"]["Enums"]["alert_severity"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       alert_settings: {
         Row: {
           id: string
@@ -409,6 +451,53 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          dedup_key: string | null
+          id: string
+          link: string | null
+          read_at: string | null
+          rule_id: string | null
+          severity: Database["public"]["Enums"]["alert_severity"]
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          dedup_key?: string | null
+          id?: string
+          link?: string | null
+          read_at?: string | null
+          rule_id?: string | null
+          severity?: Database["public"]["Enums"]["alert_severity"]
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          dedup_key?: string | null
+          id?: string
+          link?: string | null
+          read_at?: string | null
+          rule_id?: string | null
+          severity?: Database["public"]["Enums"]["alert_severity"]
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "alert_rules"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       parsed_row_edits: {
         Row: {
@@ -790,6 +879,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      evaluate_alert_rules: { Args: never; Returns: Json }
       flag_duplicate_parsed_rows: {
         Args: { _source_file_id: string }
         Returns: number
@@ -819,6 +909,12 @@ export type Database = {
       }
     }
     Enums: {
+      alert_rule_type:
+        | "unpaid_over_days"
+        | "denial_rate"
+        | "no_revenue_days"
+        | "large_balance"
+      alert_severity: "info" | "warning" | "critical"
       app_role: "admin" | "viewer"
     }
     CompositeTypes: {
@@ -947,6 +1043,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      alert_rule_type: [
+        "unpaid_over_days",
+        "denial_rate",
+        "no_revenue_days",
+        "large_balance",
+      ],
+      alert_severity: ["info", "warning", "critical"],
       app_role: ["admin", "viewer"],
     },
   },
