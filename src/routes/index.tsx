@@ -122,10 +122,13 @@ function Dashboard() {
     const channel = supabase
       .channel("dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "claims_raw" }, bump)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "source_files" }, (payload: any) => {
-        if (payload?.new?.status === "approved") bump();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "source_files" }, bump)
       .subscribe();
+    // Also refresh when the tab regains focus, in case realtime missed an event
+    const onFocus = () => bump();
+    window.addEventListener("focus", onFocus);
+    const onVisible = () => { if (document.visibilityState === "visible") bump(); };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (debounce) clearTimeout(debounce);
       supabase.removeChannel(channel);
