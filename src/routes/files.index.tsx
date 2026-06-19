@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell, PageHeader } from "@/components/app-shell";
@@ -65,7 +65,7 @@ type SourceFile = {
   kind: "structured" | "unstructured";
 };
 
-function StatusBadge({ status }: { status: SourceFile["status"] }) {
+function StatusBadge({ status, percent }: { status: SourceFile["status"]; percent?: number | null }) {
   const map: Record<SourceFile["status"], { label: string; cls: string; icon: any }> = {
     queued:       { label: "Queued",       cls: "bg-muted text-muted-foreground", icon: Clock },
     parsing:      { label: "Parsing",      cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
@@ -74,10 +74,11 @@ function StatusBadge({ status }: { status: SourceFile["status"] }) {
     failed:       { label: "Failed",       cls: "bg-destructive/15 text-destructive", icon: AlertCircle },
   };
   const { label, cls, icon: Icon } = map[status];
+  const showPct = status === "parsing" && typeof percent === "number" && isFinite(percent);
   return (
-    <Badge variant="secondary" className={`${cls} gap-1 font-normal`}>
+    <Badge variant="secondary" className={`${cls} gap-1 font-normal tabular-nums`}>
       <Icon className={`h-3 w-3 ${status === "parsing" ? "animate-spin" : ""}`} />
-      {label}
+      {label}{showPct ? ` ${Math.min(99, Math.max(0, Math.round(percent!)))}%` : ""}
     </Badge>
   );
 }
@@ -90,6 +91,7 @@ function FilesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
+  const [progress, setProgress] = useState<Record<string, number>>({});
 
   const allSelected = files.length > 0 && selected.size === files.length;
   const someSelected = selected.size > 0 && !allSelected;
@@ -251,8 +253,42 @@ function FilesPage() {
         scheduleRefresh();
       })
       .subscribe();
-    return () => { alive = false; if (pending) clearTimeout(pending); supabase.removeChannel(ch); };
+
+    // Poll parsed_rows counts for any files still parsing so the UI shows a
+    // percentage indicator of how far along the parse is.
+    const progressTimer = window.setInterval(async () => {
+      if (!alive) return;
+      const parsing = stateRef.current.filter((f: SourceFile) => f.status === "parsing");
+      if (parsing.length === 0) {
+        if (Object.keys(progressRef.current).length) {
+          progressRef.current = {};
+          setProgress({});
+        }
+        return;
+      }
+      const next: Record<string, number> = {};
+      await Promise.all(parsing.map(async (f: SourceFile) => {
+        if (!f.row_count || f.row_count <= 0) return;
+        const { count } = await supabase
+          .from("parsed_rows" as any)
+          .select("id", { count: "exact", head: true })
+          .eq("source_file_id", f.id);
+        if (typeof count === "number") {
+          next[f.id] = Math.min(100, (count / f.row_count) * 100);
+        }
+      }));
+      progressRef.current = next;
+      if (alive) setProgress(next);
+    }, 2000);
+
+    return () => { alive = false; if (pending) clearTimeout(pending); window.clearInterval(progressTimer); supabase.removeChannel(ch); };
   }, [authLoading, user?.id]);
+
+  // Keep refs in sync so the polling interval always sees the latest list.
+  const stateRef = useRef<SourceFile[]>([]);
+  const progressRef = useRef<Record<string, number>>({});
+  useEffect(() => { stateRef.current = files; }, [files]);
+  useEffect(() => { progressRef.current = progress; }, [progress]);
 
 
 
@@ -370,7 +406,7 @@ function FilesPage() {
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>
                   <TableCell className="text-sm">{f.detected_company ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell><StatusBadge status={f.status} /></TableCell>
+                  <TableCell><StatusBadge status={f.status} percent={progress[f.id]} /></TableCell>
                   <TableCell className="text-right tabular-nums">{f.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{(f.size_bytes / 1024).toFixed(1)} KB</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(f.uploaded_at).toLocaleString()}</TableCell>
