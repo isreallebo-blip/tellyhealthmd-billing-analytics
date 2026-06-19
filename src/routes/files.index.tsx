@@ -234,6 +234,11 @@ function FilesPage() {
     if (authLoading) return;
     if (!user) { setLoading(false); return; }
     let alive = true;
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (pending) return;
+      pending = setTimeout(() => { pending = null; if (alive) refresh(); }, 800);
+    };
     (async () => {
       try { await refresh(); } finally { if (alive) setLoading(false); }
     })();
@@ -241,10 +246,10 @@ function FilesPage() {
     const ch = supabase
       .channel("source-files-list")
       .on("postgres_changes", { event: "*", schema: "public", table: "source_files" }, () => {
-        if (alive) refresh();
+        scheduleRefresh();
       })
       .subscribe();
-    return () => { alive = false; supabase.removeChannel(ch); };
+    return () => { alive = false; if (pending) clearTimeout(pending); supabase.removeChannel(ch); };
   }, [authLoading, user?.id]);
 
 

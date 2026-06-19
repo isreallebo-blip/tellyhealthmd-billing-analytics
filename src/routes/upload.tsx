@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Upload, FileSpreadsheet, FileText, X, ListChecks, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { detectKind, isSupported } from "@/lib/file-extract";
+import { detectKind, isSupported } from "@/lib/file-kind";
 import { uploadManager } from "@/lib/upload-manager";
 
 export const Route = createFileRoute("/upload")({
