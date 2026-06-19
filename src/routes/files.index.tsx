@@ -253,8 +253,48 @@ function FilesPage() {
         scheduleRefresh();
       })
       .subscribe();
-    return () => { alive = false; if (pending) clearTimeout(pending); supabase.removeChannel(ch); };
+
+    // Poll parsed_rows counts for any files still parsing so the UI shows
+    // a percentage indicator of how far along the parse is.
+    const pollProgress = async () => {
+      const parsing = (await Promise.resolve(state.current?.files ?? [])) as SourceFile[];
+      // Read from state via closure since refresh updates `files`.
+    };
+    void pollProgress;
+    const progressTimer = window.setInterval(async () => {
+      if (!alive) return;
+      const parsing = stateRef.current.filter((f) => f.status === "parsing" || f.status === "queued");
+      if (parsing.length === 0) {
+        if (Object.keys(progressRef.current).length) {
+          progressRef.current = {};
+          setProgress({});
+        }
+        return;
+      }
+      const next: Record<string, number> = {};
+      await Promise.all(parsing.map(async (f) => {
+        if (!f.row_count || f.row_count <= 0) return;
+        const { count } = await supabase
+          .from("parsed_rows" as any)
+          .select("id", { count: "exact", head: true })
+          .eq("source_file_id", f.id);
+        if (typeof count === "number") {
+          next[f.id] = Math.min(100, (count / f.row_count) * 100);
+        }
+      }));
+      progressRef.current = next;
+      if (alive) setProgress(next);
+    }, 2000);
+
+    return () => { alive = false; if (pending) clearTimeout(pending); window.clearInterval(progressTimer); supabase.removeChannel(ch); };
   }, [authLoading, user?.id]);
+
+  // Keep refs in sync so the polling interval always sees the latest list.
+  const stateRef = useRef<SourceFile[]>([]);
+  const progressRef = useRef<Record<string, number>>({});
+  const state = useRef<{ files: SourceFile[] }>({ files: [] });
+  useEffect(() => { stateRef.current = files; state.current.files = files; }, [files]);
+  useEffect(() => { progressRef.current = progress; }, [progress]);
 
 
 
