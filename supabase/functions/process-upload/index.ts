@@ -156,8 +156,23 @@ function validate(def: FieldDef, value: any): string | null {
 }
 
 type Row = Record<string, any>;
-const BATCH = 2000;
-const INSERT_CONCURRENCY = 8;
+const BATCH = 500;
+const INSERT_CONCURRENCY = 3;
+const MAX_INSERT_RETRIES = 4;
+
+async function insertWithRetry(db: any, batch: any[]): Promise<void> {
+  // Split-and-retry on statement timeout (57014) or transient errors.
+  const tryInsert = async (rows: any[], attempt: number): Promise<void> => {
+    const { error } = await db.from("parsed_rows").insert(rows);
+    if (!error) return;
+    const timeout = error.code === "57014" || /timeout/i.test(error.message ?? "");
+    if (attempt >= MAX_INSERT_RETRIES || rows.length <= 25 || !timeout) throw error;
+    const mid = Math.ceil(rows.length / 2);
+    await tryInsert(rows.slice(0, mid), attempt + 1);
+    await tryInsert(rows.slice(mid), attempt + 1);
+  };
+  await tryInsert(batch, 0);
+}
 
 // ── LLM extraction for unstructured text (PDF/DOCX/TXT) ──
 async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<Row[]> {
