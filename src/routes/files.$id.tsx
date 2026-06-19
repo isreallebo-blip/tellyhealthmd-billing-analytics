@@ -256,7 +256,7 @@ function ReviewPage() {
             <Button variant="outline" asChild><Link to="/files"><ArrowLeft className="h-4 w-4 mr-2" />Back</Link></Button>
             <Button variant="outline" onClick={reparse} disabled={busy !== null || sf.status === "parsing"}>
               {busy === "reparse" || sf.status === "parsing" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-              Re-parse
+              Re-analyze
             </Button>
             <Button onClick={approve} disabled={busy !== null || sf.status !== "needs_review"}>
               {busy === "approve" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
