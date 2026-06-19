@@ -405,6 +405,7 @@ export const uploadManager = {
         fileRefs.delete(it.id);
       }
     });
+    setState({ items: [], active: 0 });
   },
   markSourceFileComplete(sourceFileId: string, status: "done" | "error" = "done", error?: string | null) {
     const matching = state.items.filter((it) => it.sourceFileId === sourceFileId && (it.status === "queued" || it.status === "uploading"));
