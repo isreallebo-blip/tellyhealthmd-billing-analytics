@@ -53,6 +53,7 @@ function ReviewPage() {
   const [busy, setBusy] = useState<"reparse" | "approve" | null>(null);
 
   const [hideDuplicates, setHideDuplicates] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   const ROW_SELECT = "id,row_index,source_row,data,confidence,validation_errors,edited,is_duplicate,duplicate_of_source_file_id";
   const SF_SELECT = "id,filename,status,row_count,detected_company,column_mapping,unmapped_columns,error";
