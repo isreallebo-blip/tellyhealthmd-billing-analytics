@@ -47,9 +47,9 @@ function UploadPage() {
 
   const addFiles = useCallback((files: FileList | File[] | null) => {
     if (!files) return;
-    const arr = Array.from(files).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
+    const arr = Array.from(files).filter((f) => isSupported(f.name));
     if (arr.length === 0) {
-      toast.error("Only .xlsx, .xls, or .csv files are supported in this version.");
+      toast.error("Supported formats: .xlsx, .xls, .csv, .pdf, .docx, .txt");
       return;
     }
     setQueue((q) => {
@@ -66,11 +66,30 @@ function UploadPage() {
   function removeFromQueue(idx: number) { setQueue((q) => q.filter((_, i) => i !== idx)); }
 
   async function submitFile(file: File): Promise<string | null> {
+    const kind = detectKind(file.name);
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
     const file_b64 = arrayBufferToBase64(buf);
+
+    let payload: Record<string, any> = {
+      filename: file.name,
+      mime: file.type || null,
+      size_bytes: file.size,
+      file_b64,
+      kind,
+    };
+
+    if (kind === "structured") {
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
+      payload.rows = rows;
+    } else {
+      const text = await extractUnstructuredText(file);
+      if (!text || text.trim().length < 20) {
+        throw new Error("No extractable text found (scanned PDF? OCR is not supported yet).");
+      }
+      payload.text = text;
+    }
 
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
@@ -86,13 +105,7 @@ function UploadPage() {
         Authorization: `Bearer ${accessToken}`,
         apikey: publishableKey,
       },
-      body: JSON.stringify({
-        filename: file.name,
-        mime: file.type || null,
-        size_bytes: file.size,
-        file_b64,
-        rows,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const text = await response.text();
