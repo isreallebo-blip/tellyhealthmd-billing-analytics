@@ -83,7 +83,7 @@ function StatusBadge({ status }: { status: SourceFile["status"] }) {
 }
 
 function FilesPage() {
-  const { profile } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -191,7 +191,8 @@ function FilesPage() {
   }
 
   useEffect(() => {
-    if (!profile) return;
+    if (authLoading) return;
+    if (!user) { setLoading(false); return; }
     let alive = true;
     (async () => { await refresh(); if (alive) setLoading(false); })();
 
@@ -202,7 +203,7 @@ function FilesPage() {
       })
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
-  }, [profile]);
+  }, [authLoading, user?.id]);
 
   async function deleteFile(f: SourceFile) {
     setDeleting(f.id);
