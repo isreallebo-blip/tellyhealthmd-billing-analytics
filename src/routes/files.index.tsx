@@ -86,8 +86,36 @@ function FilesPage() {
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  async function refresh() {
+  async function downloadOriginal(f: SourceFile) {
+    setBusy(f.id + ":dl");
+    const { data, error } = await supabase.from("source_files" as any).select("file_bytes,mime").eq("id", f.id).single();
+    setBusy(null);
+    if (error || !data) return toast.error(error?.message ?? "Could not load file");
+    const raw = (data as any).file_bytes as string | null;
+    if (!raw) return toast.error("Original file bytes not stored");
+    const bytes = hexToBytes(raw);
+    triggerDownload(new Blob([bytes], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+  }
+
+  async function exportReviewed(f: SourceFile) {
+    setBusy(f.id + ":ex");
+    const { data, error } = await supabase
+      .from("parsed_rows" as any)
+      .select("row_index,data,is_duplicate,validation_errors,edited")
+      .eq("source_file_id", f.id)
+      .order("row_index", { ascending: true });
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    const rows = (data ?? []).map((r: any) => ({ ...(r.data ?? {}), _row: r.row_index, _duplicate: r.is_duplicate, _edited: r.edited }));
+    if (!rows.length) return toast.error("No reviewed rows to export");
+    const csv = toCSV(rows);
+    const base = f.filename.replace(/\.[^.]+$/, "");
+    triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${base}-reviewed.csv`);
+    toast.success(`Exported ${rows.length} rows`);
+  }
+
     const { data } = await supabase
       .from("source_files" as any)
       .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
