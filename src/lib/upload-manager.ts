@@ -238,8 +238,9 @@ async function processOne(item: UploadItem, file: File, cancelSignal: AbortSigna
       Object.keys(row ?? {}).forEach((key) => set.add(key));
       return set;
     }, new Set<string>()));
-    let sourceFileId: string | null = crypto.randomUUID();
-    try {
+    let sourceFileId: string | null = (await ensurePlaceholder(item, file)) ?? crypto.randomUUID();
+    patchItem(item.id, { sourceFileId });
+
       for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
         const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
         const first = start === 0;
