@@ -6,8 +6,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, FileSpreadsheet, X, Loader2, ListChecks } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Upload, FileSpreadsheet, FileText, X, Loader2, ListChecks, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { detectKind, extractUnstructuredText, isSupported } from "@/lib/file-extract";
 
 export const Route = createFileRoute("/upload")({
   head: () => ({
