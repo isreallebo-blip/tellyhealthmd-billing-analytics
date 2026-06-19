@@ -113,7 +113,8 @@ async function processOne(item: UploadItem, file: File) {
   patchItem(item.id, { status: "uploading", startedAt: Date.now() });
   // Dynamically import heavy libs so the progress dock doesn't ship them
   // on every page load.
-  const { detectKind, extractUnstructuredText } = await import("@/lib/file-extract");
+  const { detectKind } = await import("@/lib/file-kind");
+  const { extractUnstructuredText } = await import("@/lib/file-extract");
   const kind = detectKind(file.name);
   const embedBytes = file.size <= EMBED_BYTES_MAX;
   const payload: Record<string, any> = {
