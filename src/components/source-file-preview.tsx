@@ -21,11 +21,19 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
   const [textPreview, setTextPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadStructuredPreview, setLoadStructuredPreview] = useState(false);
 
   const isStructured = /\.(xlsx|xls|csv)$/i.test(filename);
 
   useEffect(() => {
     let alive = true;
+    if (isStructured && !loadStructuredPreview) {
+      setLoading(false);
+      setError(null);
+      setWb(null);
+      setTextPreview(null);
+      return () => { alive = false; };
+    }
     setLoading(true);
     setError(null);
     setWb(null);
@@ -87,7 +95,7 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
       }
     })();
     return () => { alive = false; };
-  }, [sourceFileId, filename, isStructured]);
+  }, [sourceFileId, filename, isStructured, loadStructuredPreview]);
 
   const grid = useMemo(() => {
     if (!wb || !sheetName) return null;
@@ -115,6 +123,20 @@ export function SourceFilePreview({ sourceFileId, filename }: Props) {
     return (
       <div className="h-full overflow-auto p-4">
         <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed text-foreground/90">{textPreview}</pre>
+      </div>
+    );
+  }
+  if (isStructured && !loadStructuredPreview) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground">
+        <div>Original spreadsheet preview is paused so large reviews open instantly.</div>
+        <button
+          type="button"
+          onClick={() => setLoadStructuredPreview(true)}
+          className="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          Load original preview
+        </button>
       </div>
     );
   }
