@@ -65,7 +65,7 @@ type SourceFile = {
   kind: "structured" | "unstructured";
 };
 
-function StatusBadge({ status }: { status: SourceFile["status"] }) {
+function StatusBadge({ status, percent }: { status: SourceFile["status"]; percent?: number | null }) {
   const map: Record<SourceFile["status"], { label: string; cls: string; icon: any }> = {
     queued:       { label: "Queued",       cls: "bg-muted text-muted-foreground", icon: Clock },
     parsing:      { label: "Parsing",      cls: "bg-blue-500/15 text-blue-700 dark:text-blue-300", icon: Loader2 },
@@ -74,10 +74,11 @@ function StatusBadge({ status }: { status: SourceFile["status"] }) {
     failed:       { label: "Failed",       cls: "bg-destructive/15 text-destructive", icon: AlertCircle },
   };
   const { label, cls, icon: Icon } = map[status];
+  const showPct = status === "parsing" && typeof percent === "number" && isFinite(percent);
   return (
-    <Badge variant="secondary" className={`${cls} gap-1 font-normal`}>
+    <Badge variant="secondary" className={`${cls} gap-1 font-normal tabular-nums`}>
       <Icon className={`h-3 w-3 ${status === "parsing" ? "animate-spin" : ""}`} />
-      {label}
+      {label}{showPct ? ` ${Math.min(99, Math.max(0, Math.round(percent!)))}%` : ""}
     </Badge>
   );
 }
