@@ -468,6 +468,14 @@ async function insertRowsChunk(db: any, sourceFileId: string, rows: Row[], defs:
   }
 }
 
+function finalizeStructuredParse(db: any, sourceFileId: string, totalRows: number) {
+  return (async () => {
+    try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
+    catch (e) { console.error("dedup flagging failed", e); }
+    await db.from("source_files").update({ status: "needs_review", row_count: totalRows }).eq("id", sourceFileId);
+  })();
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") {
