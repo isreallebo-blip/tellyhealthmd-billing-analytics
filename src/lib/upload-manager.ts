@@ -41,6 +41,8 @@ const POST_UPLOAD_ATTEMPTS = 4;
 
 // Ticket 3: Track in-flight AbortControllers per upload item so the UI can cancel.
 const inflightControllers = new Map<string, AbortController>();
+const placeholderPromises = new Map<string, Promise<string | null>>();
+const cancelledItemIds = new Set<string>();
 
 let state: State = { items: [], active: 0 };
 const listeners = new Set<() => void>();
@@ -128,12 +130,18 @@ async function ensurePlaceholder(item: UploadItem, file: File): Promise<string |
   // If the placeholder was already created (by enqueue or a previous attempt),
   // reuse its id so the row in the Files tab stays the same record.
   const current = state.items.find((x) => x.id === item.id);
+  if (!current || cancelledItemIds.has(item.id)) return null;
   if (current?.sourceFileId) return current.sourceFileId;
+  const existingPromise = placeholderPromises.get(item.id);
+  if (existingPromise) return existingPromise;
+
+  const promise = (async () => {
   const { detectKind } = await import("@/lib/file-kind");
   const kind = detectKind(file.name);
   const { data: userData } = await supabase.auth.getUser();
   const uid = userData.user?.id;
   if (!uid) return null;
+  if (cancelledItemIds.has(item.id)) return null;
   const { data, error } = await supabase
     .from("source_files" as any)
     .insert({
@@ -148,8 +156,12 @@ async function ensurePlaceholder(item: UploadItem, file: File): Promise<string |
     .single();
   if (error || !data) return null;
   const id = (data as any).id as string;
-  patchItem(item.id, { sourceFileId: id });
+  if (!cancelledItemIds.has(item.id)) patchItem(item.id, { sourceFileId: id });
   return id;
+  })().finally(() => placeholderPromises.delete(item.id));
+
+  placeholderPromises.set(item.id, promise);
+  return promise;
 }
 
 async function processOne(item: UploadItem, file: File, cancelSignal: AbortSignal) {
