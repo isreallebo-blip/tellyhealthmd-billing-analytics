@@ -232,22 +232,53 @@ function ReviewPage() {
             <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
               <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
                 <span className="font-medium text-foreground">Parsed rows</span>
-                <span>· first {rows.length.toLocaleString()} of {sf.row_count.toLocaleString()}</span>
+                <span>· showing {displayRows.length.toLocaleString()} of {rows.length.toLocaleString()} loaded ({sf.row_count.toLocaleString()} total)</span>
                 <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber-400" /> low confidence</span>
-                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> validation error</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-destructive" /> error</span>
+                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-muted-foreground" /> duplicate</span>
+                {dupRows > 0 && (
+                  <Button
+                    variant="ghost" size="sm" className="h-6 px-2 text-xs ml-auto"
+                    onClick={() => setHideDuplicates((v) => !v)}
+                  >
+                    {hideDuplicates ? "Show" : "Hide"} duplicates ({dupRows})
+                  </Button>
+                )}
               </div>
               <div className="overflow-auto flex-1 min-h-0">
                 <Table>
                   <TableHeader className="sticky top-0 bg-background z-10">
                     <TableRow>
                       <TableHead className="w-14 text-right text-xs">#</TableHead>
+                      <TableHead className="w-8"></TableHead>
                       {visibleFields.map((d) => <TableHead key={d.field_key} className="whitespace-nowrap">{d.label}</TableHead>)}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r) => (
-                      <TableRow key={r.id} className={r.edited ? "bg-primary/5" : ""}>
+                    {displayRows.map((r) => (
+                      <TableRow
+                        key={r.id}
+                        className={[
+                          r.edited ? "bg-primary/5" : "",
+                          r.is_duplicate ? "opacity-60 bg-muted/30" : "",
+                        ].join(" ")}
+                      >
                         <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{(r.source_row ?? r.row_index + 2)}</TableCell>
+                        <TableCell className="p-1">
+                          {r.is_duplicate && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] font-medium px-1.5 py-0 h-5"
+                              title={
+                                r.duplicate_of_source_file_id
+                                  ? "Already exists in a previously approved file — will be skipped on Approve."
+                                  : "Duplicate of an earlier row in this same file — will be skipped on Approve."
+                              }
+                            >
+                              DUP
+                            </Badge>
+                          )}
+                        </TableCell>
                         {visibleFields.map((d) => {
                           const value = r.data?.[d.field_key] ?? "";
                           const conf = r.confidence?.[d.field_key] ?? 1;
