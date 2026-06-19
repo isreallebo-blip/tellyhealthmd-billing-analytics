@@ -413,6 +413,45 @@ export type Database = {
         }
         Relationships: []
       }
+      file_activity_log: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          details: Json | null
+          detected_company: string | null
+          filename: string
+          id: string
+          row_count: number | null
+          source_file_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          details?: Json | null
+          detected_company?: string | null
+          filename: string
+          id?: string
+          row_count?: number | null
+          source_file_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          details?: Json | null
+          detected_company?: string | null
+          filename?: string
+          id?: string
+          row_count?: number | null
+          source_file_id?: string | null
+        }
+        Relationships: []
+      }
       mapping_templates: {
         Row: {
           created_at: string

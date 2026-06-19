@@ -7,7 +7,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/files/")({
   head: () => ({
@@ -57,35 +59,39 @@ function FilesPage() {
   const { profile } = useAuth();
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  async function refresh() {
+    const { data } = await supabase
+      .from("source_files" as any)
+      .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
+      .order("uploaded_at", { ascending: false })
+      .limit(200);
+    setFiles((data ?? []) as unknown as SourceFile[]);
+  }
 
   useEffect(() => {
     if (!profile) return;
     let alive = true;
-    async function load() {
-      const { data } = await supabase
-        .from("source_files" as any)
-        .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
-        .order("uploaded_at", { ascending: false })
-        .limit(200);
-      if (!alive) return;
-      setFiles((data ?? []) as unknown as SourceFile[]);
-      setLoading(false);
-    }
-    load();
+    (async () => { await refresh(); if (alive) setLoading(false); })();
 
     const ch = supabase
       .channel("source-files-list")
       .on("postgres_changes", { event: "*", schema: "public", table: "source_files" }, () => {
-        supabase
-          .from("source_files" as any)
-          .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
-          .order("uploaded_at", { ascending: false })
-          .limit(200)
-          .then(({ data }) => { if (alive) setFiles((data ?? []) as unknown as SourceFile[]); });
+        if (alive) refresh();
       })
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
   }, [profile]);
+
+  async function deleteFile(f: SourceFile) {
+    setDeleting(f.id);
+    const { error } = await supabase.from("source_files" as any).delete().eq("id", f.id);
+    setDeleting(null);
+    if (error) return toast.error(error.message);
+    toast.success(`Deleted ${f.filename}`);
+    setFiles((prev) => prev.filter((x) => x.id !== f.id));
+  }
 
   return (
     <>
@@ -109,7 +115,7 @@ function FilesPage() {
                 <TableHead className="text-right">Rows</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead>Uploaded</TableHead>
-                <TableHead className="w-24"></TableHead>
+                <TableHead className="w-40 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -140,10 +146,48 @@ function FilesPage() {
                   <TableCell className="text-right tabular-nums">{f.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{(f.size_bytes / 1024).toFixed(1)} KB</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(f.uploaded_at).toLocaleString()}</TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
-                    </Button>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            disabled={deleting === f.id}
+                          >
+                            {deleting === f.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete this file?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              <span className="font-medium text-foreground">{f.filename}</span> and all of its parsed rows will be permanently removed.
+                              {f.status === "approved" && (
+                                <span className="block mt-2 text-destructive">
+                                  This file is approved — its claims will also be deleted from the dashboard.
+                                </span>
+                              )}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteFile(f)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -153,4 +197,6 @@ function FilesPage() {
       </div>
     </>
   );
+
+
 }

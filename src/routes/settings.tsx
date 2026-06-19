@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/multi-select";
 import { UserManagement } from "@/components/user-management";
 import { toast } from "sonner";
+import { ScrollText, ChevronRight } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -187,6 +188,21 @@ function SettingsPage() {
               placeholder="No defaults (show all)"
             />
             <Button onClick={saveFilters}>Save defaults</Button>
+          </CardContent>
+        </Card>
+
+        {/* 5. File Activity Log */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><ScrollText className="h-5 w-5" /> File Activity Log</CardTitle>
+            <CardDescription>
+              See every file that was uploaded, parsed, approved, or deleted — with timestamps and the user who did it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link to="/settings/activity">Open activity log <ChevronRight className="h-4 w-4 ml-1" /></Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
