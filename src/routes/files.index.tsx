@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X, RotateCw } from "lucide-react";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown, X, RotateCw, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { uploadManager } from "@/lib/upload-manager";
 import { publishingTracker } from "@/lib/publishing-tracker";
@@ -107,6 +107,22 @@ function FilesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
+  type SortKey = "filename" | "detected_company" | "status" | "row_count" | "size_bytes" | "uploaded_at";
+  const [sortKey, setSortKey] = useState<SortKey>("uploaded_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setSortDir(k === "uploaded_at" || k === "row_count" || k === "size_bytes" ? "desc" : "asc"); }
+  };
+  const SortHeader = ({ k, children, className }: { k: SortKey; children: React.ReactNode; className?: string }) => {
+    const active = sortKey === k;
+    const Icon = !active ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
+    return (
+      <button type="button" onClick={() => toggleSort(k)} className={`inline-flex items-center gap-1 hover:text-foreground transition-colors ${active ? "text-foreground" : ""} ${className ?? ""}`}>
+        {children}<Icon className={`h-3.5 w-3.5 ${active ? "opacity-100" : "opacity-40"}`} />
+      </button>
+    );
+  };
   const uploadState = useSyncExternalStore(uploadManager.subscribe, uploadManager.getState, uploadManager.getState);
   useSyncExternalStore(publishingTracker.subscribe, publishingTracker.getSnapshot, publishingTracker.getSnapshot);
   // Build map: sourceFileId -> { phase, percent } from in-progress uploads.
@@ -401,12 +417,12 @@ function FilesPage() {
                     aria-label="Select all files"
                   />
                 </TableHead>
-                <TableHead>Filename</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Rows</TableHead>
-                <TableHead className="text-right">Size</TableHead>
-                <TableHead>Uploaded</TableHead>
+                <TableHead><SortHeader k="filename">Filename</SortHeader></TableHead>
+                <TableHead><SortHeader k="detected_company">Company</SortHeader></TableHead>
+                <TableHead><SortHeader k="status">Status</SortHeader></TableHead>
+                <TableHead className="text-right"><SortHeader k="row_count" className="justify-end">Rows</SortHeader></TableHead>
+                <TableHead className="text-right"><SortHeader k="size_bytes" className="justify-end">Size</SortHeader></TableHead>
+                <TableHead><SortHeader k="uploaded_at">Uploaded</SortHeader></TableHead>
                 <TableHead className="w-64 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -417,7 +433,15 @@ function FilesPage() {
                 <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                   No uploads yet. <Link to="/upload" className="text-primary hover:underline">Upload your first file</Link>.
                 </TableCell></TableRow>
-              ) : files.map((f) => (
+              ) : [...files].sort((a, b) => {
+                const dir = sortDir === "asc" ? 1 : -1;
+                const av = (a as any)[sortKey]; const bv = (b as any)[sortKey];
+                if (av == null && bv == null) return 0;
+                if (av == null) return 1; if (bv == null) return -1;
+                if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+                if (sortKey === "uploaded_at") return (new Date(av).getTime() - new Date(bv).getTime()) * dir;
+                return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }) * dir;
+              }).map((f) => (
                 <TableRow key={f.id} className="hover:bg-muted/40" data-state={selected.has(f.id) ? "selected" : undefined}>
                   <TableCell>
                     <Checkbox

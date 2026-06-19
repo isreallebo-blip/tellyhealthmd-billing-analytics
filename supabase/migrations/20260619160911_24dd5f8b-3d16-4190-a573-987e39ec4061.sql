@@ -1,0 +1,1 @@
+ALTER TABLE public.source_files REPLICA IDENTITY FULL; ALTER PUBLICATION supabase_realtime ADD TABLE public.source_files;
