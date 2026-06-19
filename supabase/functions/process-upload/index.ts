@@ -337,9 +337,9 @@ Deno.serve(async (req) => {
     // Prefer background processing when the runtime supports it. If not, run
     // inline instead of throwing a 500 after the job row has already been made.
     const processingPromise = processRows(job.id, userId, filename, rows);
-    const waitUntil = (globalThis as any).EdgeRuntime?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil(processingPromise);
+    const edgeRuntime = (globalThis as any).EdgeRuntime;
+    if (typeof edgeRuntime?.waitUntil === "function") {
+      edgeRuntime.waitUntil(processingPromise);
     } else {
       await processingPromise;
     }
