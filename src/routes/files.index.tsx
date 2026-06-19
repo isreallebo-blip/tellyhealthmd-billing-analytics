@@ -289,13 +289,20 @@ function FilesPage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : files.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                   No uploads yet. <Link to="/upload" className="text-primary hover:underline">Upload your first file</Link>.
                 </TableCell></TableRow>
               ) : files.map((f) => (
-                <TableRow key={f.id} className="hover:bg-muted/40">
+                <TableRow key={f.id} className="hover:bg-muted/40" data-state={selected.has(f.id) ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(f.id)}
+                      onCheckedChange={() => toggleOne(f.id)}
+                      aria-label={`Select ${f.filename}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Link to="/files/$id" params={{ id: f.id }} className="flex items-center gap-2 font-medium hover:text-primary">
                       {f.kind === "unstructured"
