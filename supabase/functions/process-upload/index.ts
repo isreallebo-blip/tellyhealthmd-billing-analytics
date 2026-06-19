@@ -96,8 +96,8 @@ type Normalized = {
 
 const BATCH_SIZE = 500;
 
-async function processRows(jobId: string, userId: string, filename: string, rows: Row[]) {
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+async function processRows(jobId: string, userId: string, filename: string, rows: Row[], authHeader: string) {
+  const admin = createDbClient(authHeader);
 
   let inserted = 0, updated = 0, skipped = 0, unknownCpt = 0, processed = 0;
   const errors: string[] = [];
@@ -341,7 +341,7 @@ Deno.serve(async (req) => {
   try {
     // Verify the caller
     const authHeader = req.headers.get("Authorization") ?? "";
-    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+    const userClient = createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
       global: { headers: { Authorization: authHeader } },
       auth: { persistSession: false },
     });
@@ -361,7 +361,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+    const admin = createDbClient(authHeader);
     const { data: job, error: jobErr } = await admin.from("upload_jobs").insert({
       user_id: userId,
       filename,
@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
 
     // Prefer background processing when the runtime supports it. If not, run
     // inline instead of throwing a 500 after the job row has already been made.
-    const processingPromise = processRows(job.id, userId, filename, rows);
+    const processingPromise = processRows(job.id, userId, filename, rows, authHeader);
     const edgeRuntime = (globalThis as any).EdgeRuntime;
     if (typeof edgeRuntime?.waitUntil === "function") {
       edgeRuntime.waitUntil(processingPromise);
