@@ -309,7 +309,7 @@ function ReviewPage() {
         actions={
           <div className="flex gap-2">
             <Button variant="outline" asChild><Link to="/files"><ArrowLeft className="h-4 w-4 mr-2" />Back</Link></Button>
-            <Button variant="outline" onClick={reparse} disabled={busy !== null}>
+            <Button variant="outline" onClick={reparse} disabled={busy !== null || sf.status === "parsing" || sf.status === "queued"}>
               {busy === "reparse" || sf.status === "parsing" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
               Re-analyze
             </Button>

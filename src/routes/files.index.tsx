@@ -255,7 +255,12 @@ function FilesPage() {
       toast.error(`Failed to load files: ${error.message}`);
       return;
     }
-    setFiles((data ?? []) as unknown as SourceFile[]);
+    const nextFiles = (data ?? []) as unknown as SourceFile[];
+    nextFiles.forEach((file) => {
+      if (file.status === "needs_review" || file.status === "approved") uploadManager.markSourceFileComplete(file.id, "done");
+      if (file.status === "failed") uploadManager.markSourceFileComplete(file.id, "error", file.error);
+    });
+    setFiles(nextFiles);
   }
 
   useEffect(() => {
@@ -430,7 +435,7 @@ function FilesPage() {
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>
                   <TableCell className="text-sm">{f.detected_company ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                  <TableCell><StatusBadge status={f.status} percent={uploadInfo[f.id]?.percent ?? progress[f.id]} phase={uploadInfo[f.id]?.phase ?? null} /></TableCell>
+                  <TableCell><StatusBadge status={f.status} percent={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.percent ?? progress[f.id] : null} phase={(f.status === "queued" || f.status === "parsing") ? uploadInfo[f.id]?.phase ?? null : null} /></TableCell>
                   <TableCell className="text-right tabular-nums">{f.row_count.toLocaleString()}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{(f.size_bytes / 1024).toFixed(1)} KB</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(f.uploaded_at).toLocaleString()}</TableCell>
@@ -439,7 +444,7 @@ function FilesPage() {
                       <Button variant="ghost" size="sm" asChild>
                         <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
                       </Button>
-                      {(f.status === "failed" || f.status === "parsing" || f.status === "queued") && (
+                      {f.status === "failed" && (
                         <Button
                           variant="ghost"
                           size="sm"
