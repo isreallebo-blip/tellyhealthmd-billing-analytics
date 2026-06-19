@@ -8,8 +8,34 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2 } from "lucide-react";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles, Trash2, Download, FileDown } from "lucide-react";
 import { toast } from "sonner";
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith("\\x") ? hex.slice(2) : hex;
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  return out;
+}
+
+function toCSV(rows: Record<string, any>[]): string {
+  if (!rows.length) return "";
+  const headers: string[] = Array.from(rows.reduce((s: Set<string>, r) => { Object.keys(r ?? {}).forEach(k => s.add(k)); return s; }, new Set<string>()));
+  const esc = (v: any) => {
+    if (v == null) return "";
+    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [headers.join(","), ...rows.map(r => headers.map(h => esc(r[h])).join(","))].join("\n");
+}
 
 export const Route = createFileRoute("/files/")({
   head: () => ({
@@ -60,6 +86,35 @@ function FilesPage() {
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function downloadOriginal(f: SourceFile) {
+    setBusy(f.id + ":dl");
+    const { data, error } = await supabase.from("source_files" as any).select("file_bytes,mime").eq("id", f.id).single();
+    setBusy(null);
+    if (error || !data) return toast.error(error?.message ?? "Could not load file");
+    const raw = (data as any).file_bytes as string | null;
+    if (!raw) return toast.error("Original file bytes not stored");
+    const bytes = hexToBytes(raw);
+    triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+  }
+
+  async function exportReviewed(f: SourceFile) {
+    setBusy(f.id + ":ex");
+    const { data, error } = await supabase
+      .from("parsed_rows" as any)
+      .select("row_index,data,is_duplicate,validation_errors,edited")
+      .eq("source_file_id", f.id)
+      .order("row_index", { ascending: true });
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    const rows = (data ?? []).map((r: any) => ({ ...(r.data ?? {}), _row: r.row_index, _duplicate: r.is_duplicate, _edited: r.edited }));
+    if (!rows.length) return toast.error("No reviewed rows to export");
+    const csv = toCSV(rows);
+    const base = f.filename.replace(/\.[^.]+$/, "");
+    triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${base}-reviewed.csv`);
+    toast.success(`Exported ${rows.length} rows`);
+  }
 
   async function refresh() {
     const { data } = await supabase
@@ -115,7 +170,7 @@ function FilesPage() {
                 <TableHead className="text-right">Rows</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead>Uploaded</TableHead>
-                <TableHead className="w-40 text-right">Actions</TableHead>
+                <TableHead className="w-64 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -150,6 +205,24 @@ function FilesPage() {
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="sm" asChild>
                         <Link to="/files/$id" params={{ id: f.id }}>Review</Link>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Download original file"
+                        disabled={busy === f.id + ":dl"}
+                        onClick={() => downloadOriginal(f)}
+                      >
+                        {busy === f.id + ":dl" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title={f.status === "approved" ? "Export reviewed data (CSV)" : "Export current parsed data (CSV)"}
+                        disabled={busy === f.id + ":ex" || f.row_count === 0}
+                        onClick={() => exportReviewed(f)}
+                      >
+                        {busy === f.id + ":ex" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
