@@ -108,6 +108,7 @@ function FilesPage() {
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
   const [progress, setProgress] = useState<Record<string, number>>({});
   const uploadState = useSyncExternalStore(uploadManager.subscribe, uploadManager.getState, uploadManager.getState);
+  useSyncExternalStore(publishingTracker.subscribe, publishingTracker.getSnapshot, publishingTracker.getSnapshot);
   // Build map: sourceFileId -> { phase, percent } from in-progress uploads.
   const uploadInfo: Record<string, { phase: "uploading"; percent: number | null }> = {};
   for (const it of uploadState.items) {
