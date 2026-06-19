@@ -336,6 +336,8 @@ async function pump() {
       } catch (e: any) {
         const cancelled = e?.name === "AbortError" && controller.signal.aborted;
         const isSignOut = cancelled && e?.message === "Sign out";
+        const latest = state.items.find((x) => x.id === next.id);
+        if (latest?.status === "done" || latest?.status === "error") return;
         patchItem(next.id, {
           status: "error",
           error: cancelled ? "Cancelled" : (e?.message ?? "Failed"),
