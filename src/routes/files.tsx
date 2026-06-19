@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileSpreadsheet, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { FileSpreadsheet, FileText, Upload, Eye, Loader2, CheckCircle2, AlertCircle, Clock, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/files")({
   head: () => ({
@@ -33,6 +33,7 @@ type SourceFile = {
   uploaded_at: string;
   approved_at: string | null;
   error: string | null;
+  kind: "structured" | "unstructured";
 };
 
 function StatusBadge({ status }: { status: SourceFile["status"] }) {
@@ -63,7 +64,7 @@ function FilesPage() {
     async function load() {
       const { data } = await supabase
         .from("source_files" as any)
-        .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error")
+        .select("id,filename,detected_company,status,row_count,size_bytes,uploaded_at,approved_at,error,kind")
         .order("uploaded_at", { ascending: false })
         .limit(200);
       if (!alive) return;
@@ -123,8 +124,15 @@ function FilesPage() {
                 <TableRow key={f.id} className="hover:bg-muted/40">
                   <TableCell>
                     <Link to="/files/$id" params={{ id: f.id }} className="flex items-center gap-2 font-medium hover:text-primary">
-                      <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+                      {f.kind === "unstructured"
+                        ? <FileText className="h-4 w-4 text-violet-500" />
+                        : <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />}
                       <span className="truncate max-w-[280px]">{f.filename}</span>
+                      {f.kind === "unstructured" && (
+                        <Badge variant="secondary" className="text-[10px] gap-1 ml-1">
+                          <Sparkles className="h-3 w-3" /> AI
+                        </Badge>
+                      )}
                     </Link>
                     {f.error && <div className="text-xs text-destructive mt-0.5">{f.error}</div>}
                   </TableCell>

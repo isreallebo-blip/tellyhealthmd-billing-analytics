@@ -6,8 +6,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Upload, FileSpreadsheet, X, Loader2, ListChecks } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Upload, FileSpreadsheet, FileText, X, Loader2, ListChecks, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { detectKind, extractUnstructuredText, isSupported } from "@/lib/file-extract";
 
 export const Route = createFileRoute("/upload")({
   head: () => ({
@@ -45,9 +47,9 @@ function UploadPage() {
 
   const addFiles = useCallback((files: FileList | File[] | null) => {
     if (!files) return;
-    const arr = Array.from(files).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
+    const arr = Array.from(files).filter((f) => isSupported(f.name));
     if (arr.length === 0) {
-      toast.error("Only .xlsx, .xls, or .csv files are supported in this version.");
+      toast.error("Supported formats: .xlsx, .xls, .csv, .pdf, .docx, .txt");
       return;
     }
     setQueue((q) => {
@@ -64,11 +66,30 @@ function UploadPage() {
   function removeFromQueue(idx: number) { setQueue((q) => q.filter((_, i) => i !== idx)); }
 
   async function submitFile(file: File): Promise<string | null> {
+    const kind = detectKind(file.name);
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
     const file_b64 = arrayBufferToBase64(buf);
+
+    let payload: Record<string, any> = {
+      filename: file.name,
+      mime: file.type || null,
+      size_bytes: file.size,
+      file_b64,
+      kind,
+    };
+
+    if (kind === "structured") {
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null });
+      payload.rows = rows;
+    } else {
+      const text = await extractUnstructuredText(file);
+      if (!text || text.trim().length < 20) {
+        throw new Error("No extractable text found (scanned PDF? OCR is not supported yet).");
+      }
+      payload.text = text;
+    }
 
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
@@ -84,13 +105,7 @@ function UploadPage() {
         Authorization: `Bearer ${accessToken}`,
         apikey: publishableKey,
       },
-      body: JSON.stringify({
-        filename: file.name,
-        mime: file.type || null,
-        size_bytes: file.size,
-        file_b64,
-        rows,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const text = await response.text();
@@ -160,9 +175,9 @@ function UploadPage() {
               >
                 <Upload className="h-10 w-10 text-muted-foreground mb-3" />
                 <div className="font-medium">Drag &amp; drop one or more files</div>
-                <div className="text-sm text-muted-foreground mt-1">or click to browse — .xlsx, .xls, .csv</div>
+                <div className="text-sm text-muted-foreground mt-1">or click to browse — .xlsx, .xls, .csv, .pdf, .docx, .txt</div>
                 <input
-                  ref={inputRef} type="file" accept=".xlsx,.xls,.csv" multiple className="hidden"
+                  ref={inputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.docx,.txt" multiple className="hidden"
                   onChange={(e) => addFiles(e.target.files)}
                 />
               </div>
@@ -172,27 +187,40 @@ function UploadPage() {
                   <div className="px-3 py-2 text-xs text-muted-foreground bg-muted/40">
                     Queue ({queue.length} file{queue.length === 1 ? "" : "s"})
                   </div>
-                  {queue.map((f, i) => (
-                    <div key={`${f.name}:${f.size}:${i}`} className="flex items-center gap-3 px-3 py-2 text-sm">
-                      <FileSpreadsheet className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div className="flex-1 truncate">{f.name}</div>
-                      <div className="text-xs text-muted-foreground tabular-nums">{(f.size / 1024).toFixed(1)} KB</div>
-                      <Button
-                        variant="ghost" size="icon" className="h-7 w-7"
-                        disabled={submitting} onClick={() => removeFromQueue(i)}
-                        aria-label={`Remove ${f.name}`}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                  {queue.map((f, i) => {
+                    const kind = detectKind(f.name);
+                    const Icon = kind === "unstructured" ? FileText : FileSpreadsheet;
+                    return (
+                      <div key={`${f.name}:${f.size}:${i}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+                        <Icon className={`h-4 w-4 shrink-0 ${kind === "unstructured" ? "text-violet-500" : "text-muted-foreground"}`} />
+                        <div className="flex-1 truncate">{f.name}</div>
+                        {kind === "unstructured" && (
+                          <Badge variant="secondary" className="text-[10px] gap-1">
+                            <Sparkles className="h-3 w-3" /> AI extract
+                          </Badge>
+                        )}
+                        <div className="text-xs text-muted-foreground tabular-nums">{(f.size / 1024).toFixed(1)} KB</div>
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7"
+                          disabled={submitting} onClick={() => removeFromQueue(i)}
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             <div className="space-y-4">
               <div className="text-sm text-muted-foreground">
-                Originals are stored immutably. Parsing runs in the background and lands on the Files list as <span className="font-medium text-foreground">Needs Review</span>. You can re-parse without re-uploading.
+                <p>Originals are stored immutably. Parsing runs in the background and lands on the Files list as <span className="font-medium text-foreground">Needs Review</span>.</p>
+                <p className="mt-2">
+                  <span className="font-medium text-foreground">Spreadsheets</span> map columns to the field registry directly.
+                  <span className="font-medium text-foreground"> PDFs, Word docs and plain text</span> are run through AI to pull out claim rows — review every row before approving.
+                </p>
               </div>
 
               <Button className="w-full" disabled={queue.length === 0 || submitting} onClick={submitAll}>

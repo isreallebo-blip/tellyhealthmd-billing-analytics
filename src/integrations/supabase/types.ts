@@ -487,6 +487,7 @@ export type Database = {
           filename: string
           header_row: number | null
           id: string
+          kind: string
           mime: string | null
           row_count: number
           sha256: string | null
@@ -507,6 +508,7 @@ export type Database = {
           filename: string
           header_row?: number | null
           id?: string
+          kind?: string
           mime?: string | null
           row_count?: number
           sha256?: string | null
@@ -527,6 +529,7 @@ export type Database = {
           filename?: string
           header_row?: number | null
           id?: string
+          kind?: string
           mime?: string | null
           row_count?: number
           sha256?: string | null
