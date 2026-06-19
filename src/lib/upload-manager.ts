@@ -29,7 +29,7 @@ type State = {
 };
 
 const EMBED_BYTES_MAX = 6 * 1024 * 1024;
-const CONCURRENCY = 3;
+const CONCURRENCY = 1;
 const STRUCTURED_CHUNK_ROWS = 1000;
 
 let state: State = { items: [], active: 0 };
