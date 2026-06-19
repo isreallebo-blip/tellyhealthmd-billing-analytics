@@ -84,12 +84,27 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: corsHeaders });
     }
 
+    // CONCURRENCY GUARD: atomically flip status to "publishing" so a second
+    // call (double-click, retry, second tab, bulk-approve) cannot start a
+    // parallel publish for the same file. Only allow flipping from a state
+    // that is NOT already publishing. If 0 rows are updated, another publish
+    // is already in flight — return 409.
+    const { data: lockRow, error: lockErr } = await db
+      .from("source_files")
+      .update({ status: "publishing", error: null })
+      .eq("id", source_file_id)
+      .in("status", ["needs_review", "approved", "failed"])
+      .select("id")
+      .maybeSingle();
+    if (lockErr) throw lockErr;
+    if (!lockRow) {
+      return new Response(
+        JSON.stringify({ error: "A publish is already in progress for this file." }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // Heavy work runs in the background so the UI can return to /files immediately.
-    // We do NOT flip status back to "parsing" — re-parsing already happened once.
-    // The file stays as needs_review (or approved on re-publish) while claims_raw
-    // is rebuilt, and we only flip to "approved" when the background insert ends.
-
-
     const publishInBackground = async () => {
       try {
         // Wipe previous claims_raw for this source file (re-approval path)
@@ -112,7 +127,7 @@ Deno.serve(async (req) => {
           overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
         );
 
-        let inserted = 0, skipped = 0, dupSkipped = 0;
+        let inserted = 0, skipped = 0, dupSkipped = 0, pagedTotal = 0;
         const PAGE = 1000;
         let from = 0;
         while (true) {
@@ -124,6 +139,7 @@ Deno.serve(async (req) => {
             .range(from, from + PAGE - 1);
           if (pErr) throw pErr;
           if (!page || page.length === 0) break;
+          pagedTotal += page.length;
 
           const toInsert: Record<string, any>[] = [];
           for (const r of page) {
@@ -188,13 +204,35 @@ Deno.serve(async (req) => {
           from += PAGE;
         }
 
+        // ROW-COUNT VERIFICATION: same pattern as finalizeStructuredParse in
+        // process-upload. Make sure every parsed_row we paged through was
+        // accounted for (either inserted, skipped for missing keys, or
+        // skipped as a duplicate). If they don't reconcile a worker may have
+        // silently lost rows — fail the publish instead of marking approved.
+        const accountedFor = inserted + skipped + dupSkipped;
+        if (accountedFor !== pagedTotal) {
+          throw new Error(
+            `Row count mismatch: read ${pagedTotal} parsed rows but only accounted for ${accountedFor} (inserted=${inserted}, skipped=${skipped}, duplicates=${dupSkipped}). Please re-publish.`,
+          );
+        }
+        const { count: claimsCount, error: ccErr } = await db
+          .from("claims_raw")
+          .select("id", { count: "exact", head: true })
+          .eq("source_file_id", source_file_id);
+        if (ccErr) throw ccErr;
+        if ((claimsCount ?? 0) !== inserted) {
+          throw new Error(
+            `Final claim count (${claimsCount ?? 0}) does not match inserted total (${inserted}). Please re-publish.`,
+          );
+        }
+
         await db.from("source_files").update({
           status: "approved",
           approved_by: userId,
           approved_at: new Date().toISOString(),
           error: null,
         }).eq("id", source_file_id);
-        console.log("approve-source-file done", { source_file_id, inserted, skipped, dupSkipped });
+        console.log("approve-source-file done", { source_file_id, inserted, skipped, dupSkipped, claimsCount });
       } catch (bgErr: any) {
         console.error("approve-source-file background failed", bgErr);
         await db.from("source_files").update({
@@ -211,6 +249,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ scheduled: true }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
 
   } catch (err: any) {
     console.error("approve-source-file failed", err);

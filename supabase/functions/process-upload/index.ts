@@ -562,7 +562,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { upload_mode, source_file_id, filename, mime, size_bytes, file_b64, rows, text, kind, headers, start_index, total_rows, is_last_chunk } = body as {
-      upload_mode?: "start_structured" | "append_structured" | "restart_structured";
+      upload_mode?: "start_structured" | "append_structured";
       source_file_id?: string;
       filename: string; mime?: string; size_bytes?: number;
       file_b64?: string;
@@ -575,7 +575,7 @@ Deno.serve(async (req) => {
       is_last_chunk?: boolean;
     };
     const fileKind: "structured" | "unstructured" = kind === "unstructured" ? "unstructured" : "structured";
-    if (upload_mode === "append_structured" || upload_mode === "restart_structured") {
+    if (upload_mode === "append_structured") {
       if (!source_file_id || !Array.isArray(rows)) {
         return new Response(JSON.stringify({ error: "source_file_id and rows[] required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -604,32 +604,10 @@ Deno.serve(async (req) => {
       .eq("is_active", true);
     if (defsErr) throw defsErr;
 
-    if (upload_mode === "restart_structured") {
-      if (Number(start_index ?? 0) !== 0) {
-        return new Response(JSON.stringify({ error: "restart_structured must start at row 0" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      const { data: allowed } = await userClient.from("source_files").select("id").eq("id", source_file_id).maybeSingle();
-      if (!allowed) return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      const prepared = await prepareStructuredMapping(db, rows ?? [], (defs ?? []) as FieldDef[], { headers, filename });
-      await db.from("source_files").update({
-        status: "parsing",
-        error: null,
-        row_count: total_rows ?? rows?.length ?? 0,
-        column_mapping: prepared.mapping,
-        unmapped_columns: prepared.unmapped,
-        detected_company: prepared.detectedCompany,
-        mapping_template_id: prepared.mappingTemplateId,
-      }).eq("id", source_file_id);
-      await db.from("parsed_rows").delete().eq("source_file_id", source_file_id);
-      await insertRowsChunk(db, source_file_id!, rows ?? [], (defs ?? []) as FieldDef[], 0, prepared.mapping);
-      if (is_last_chunk) {
-        const finalize = finalizeStructuredParse(db, source_file_id!, total_rows ?? rows?.length ?? 0);
-        const er = (globalThis as any).EdgeRuntime;
-        if (typeof er?.waitUntil === "function") er.waitUntil(finalize);
-        else await finalize;
-      }
-      return new Response(JSON.stringify({ source_file_id }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // (The previous `restart_structured` branch was removed: it had no
+    // caller in the client and overlapped with reparse-source-file. The
+    // Re-analyze button in files.$id.tsx uses reparse-source-file instead.)
+
 
     if (upload_mode === "append_structured") {
       const { data: allowed } = await userClient.from("source_files").select("id,column_mapping,status").eq("id", source_file_id).maybeSingle();
