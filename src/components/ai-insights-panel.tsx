@@ -31,6 +31,7 @@ export function AiInsightsPanel({ autoRunSignal }: { autoRunSignal?: number }) {
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [initial, setInitial] = useState(true);
+  const [collapsed, setCollapsed] = useState(true);
 
   const load = useCallback(async () => {
     try {
