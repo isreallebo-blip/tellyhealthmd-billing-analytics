@@ -297,16 +297,29 @@ function ReviewPage() {
           </Card>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
-            <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center justify-between">
-              <span className="font-medium text-foreground">Original file</span>
-              <span>read-only</span>
+        <div className={`grid grid-cols-1 ${showOriginal ? "xl:grid-cols-2" : ""} gap-6`}>
+          {showOriginal ? (
+            <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
+              <div className="px-4 py-3 border-b text-xs text-muted-foreground flex items-center justify-between">
+                <span className="font-medium text-foreground">Original file</span>
+                <div className="flex items-center gap-2">
+                  <span>read-only</span>
+                  <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setShowOriginal(false)}>
+                    <ChevronLeft className="h-3.5 w-3.5 mr-1" /> Hide
+                  </Button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <SourceFilePreview sourceFileId={sf.id} filename={sf.filename} />
+              </div>
+            </Card>
+          ) : (
+            <div className="-mb-2 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setShowOriginal(true)}>
+                <ChevronRight className="h-3.5 w-3.5 mr-1" /> Show original file
+              </Button>
             </div>
-            <div className="flex-1 min-h-0">
-              <SourceFilePreview sourceFileId={sf.id} filename={sf.filename} />
-            </div>
-          </Card>
+          )}
 
           {rows.length > 0 ? (
             <Card className="overflow-hidden flex flex-col" style={{ height: "70vh" }}>
