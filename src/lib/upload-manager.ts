@@ -31,6 +31,7 @@ type State = {
 const EMBED_BYTES_MAX = 6 * 1024 * 1024;
 const CONCURRENCY = 1;
 const STRUCTURED_CHUNK_ROWS = 1000;
+const POST_UPLOAD_TIMEOUT_MS = 180_000;
 
 let state: State = { items: [], active: 0 };
 const listeners = new Set<() => void>();
@@ -132,6 +133,8 @@ async function processOne(item: UploadItem, file: File) {
   const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   const postUpload = async (body: Record<string, any>) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), POST_UPLOAD_TIMEOUT_MS);
     const response = await fetch(`${supabaseUrl}/functions/v1/process-upload`, {
       method: "POST",
       headers: {
@@ -140,7 +143,8 @@ async function processOne(item: UploadItem, file: File) {
         apikey: publishableKey,
       },
       body: JSON.stringify(body),
-    });
+      signal: controller.signal,
+    }).finally(() => window.clearTimeout(timeout));
     const text = await response.text();
     let data: any = null;
     try { data = text ? JSON.parse(text) : null; } catch {}
@@ -159,25 +163,35 @@ async function processOne(item: UploadItem, file: File) {
       return set;
     }, new Set<string>()));
     let sourceFileId: string | null = null;
-    for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
-      const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
-      const first = start === 0;
-      const last = start + STRUCTURED_CHUNK_ROWS >= rows.length;
-      const data = await postUpload({
-        ...payload,
-        upload_mode: first ? "start_structured" : "append_structured",
-        source_file_id: sourceFileId,
-        rows: chunk,
-        headers,
-        start_index: start,
-        total_rows: rows.length,
-        is_last_chunk: last,
-        ...(first && embedBytes ? { file_b64: await fileToBase64(new Blob([buf])) } : {}),
-      });
-      sourceFileId = data.source_file_id ?? sourceFileId;
-      if (!sourceFileId) throw new Error("Upload did not create a file record");
-      patchItem(item.id, { sourceFileId });
-      if (last) break;
+    try {
+      for (let start = 0; start < rows.length || start === 0; start += STRUCTURED_CHUNK_ROWS) {
+        const chunk = rows.slice(start, start + STRUCTURED_CHUNK_ROWS);
+        const first = start === 0;
+        const last = start + STRUCTURED_CHUNK_ROWS >= rows.length;
+        const data = await postUpload({
+          ...payload,
+          upload_mode: first ? "start_structured" : "append_structured",
+          source_file_id: sourceFileId,
+          rows: chunk,
+          headers,
+          start_index: start,
+          total_rows: rows.length,
+          is_last_chunk: last,
+          ...(first && embedBytes ? { file_b64: await fileToBase64(new Blob([buf])) } : {}),
+        });
+        sourceFileId = data.source_file_id ?? sourceFileId;
+        if (!sourceFileId) throw new Error("Upload did not create a file record");
+        patchItem(item.id, { sourceFileId });
+        if (last) break;
+      }
+    } catch (e: any) {
+      if (sourceFileId) {
+        await supabase.from("source_files" as any).update({
+          status: "failed",
+          error: e?.name === "AbortError" ? "Upload request timed out. Click Re-analyze to restart safely." : e?.message ?? "Upload failed",
+        }).eq("id", sourceFileId);
+      }
+      throw e?.name === "AbortError" ? new Error("Upload request timed out. Click Re-analyze to restart safely.") : e;
     }
     return sourceFileId;
   } else {

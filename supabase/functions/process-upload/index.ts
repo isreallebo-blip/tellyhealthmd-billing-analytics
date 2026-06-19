@@ -160,6 +160,12 @@ const BATCH = 1000;
 const INSERT_CONCURRENCY = 5;
 const MAX_INSERT_RETRIES = 5;
 
+function bytesToPostgresBytea(bytes: Uint8Array): string {
+  const hex = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) hex[i] = bytes[i].toString(16).padStart(2, "0");
+  return `\\x${hex.join("")}`;
+}
+
 async function insertWithRetry(db: any, batch: any[]): Promise<void> {
   // Split-and-retry on statement timeout (57014) or transient errors.
   const tryInsert = async (rows: any[], attempt: number): Promise<void> => {
@@ -470,9 +476,25 @@ async function insertRowsChunk(db: any, sourceFileId: string, rows: Row[], defs:
 
 function finalizeStructuredParse(db: any, sourceFileId: string, totalRows: number) {
   return (async () => {
-    try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
-    catch (e) { console.error("dedup flagging failed", e); }
-    await db.from("source_files").update({ status: "needs_review", row_count: totalRows }).eq("id", sourceFileId);
+    try {
+      const { count, error: countErr } = await db
+        .from("parsed_rows")
+        .select("id", { count: "exact", head: true })
+        .eq("source_file_id", sourceFileId);
+      if (countErr) throw countErr;
+      if ((count ?? 0) !== totalRows) {
+        throw new Error(`Only ${count ?? 0} of ${totalRows} rows were saved. Click Re-analyze to restart safely.`);
+      }
+      try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
+      catch (e) { console.error("dedup flagging failed", e); }
+      await db.from("source_files").update({ status: "needs_review", row_count: totalRows, error: null }).eq("id", sourceFileId);
+    } catch (err: any) {
+      console.error("structured finalize failed", err);
+      await db.from("source_files").update({
+        status: "failed",
+        error: err?.message ?? "Parsing did not finish. Click Re-analyze to restart safely.",
+      }).eq("id", sourceFileId);
+    }
   })();
 }
 
@@ -499,7 +521,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { upload_mode, source_file_id, filename, mime, size_bytes, file_b64, rows, text, kind, headers, start_index, total_rows, is_last_chunk } = body as {
-      upload_mode?: "start_structured" | "append_structured";
+      upload_mode?: "start_structured" | "append_structured" | "restart_structured";
       source_file_id?: string;
       filename: string; mime?: string; size_bytes?: number;
       file_b64?: string;
@@ -512,7 +534,7 @@ Deno.serve(async (req) => {
       is_last_chunk?: boolean;
     };
     const fileKind: "structured" | "unstructured" = kind === "unstructured" ? "unstructured" : "structured";
-    if (upload_mode === "append_structured") {
+    if (upload_mode === "append_structured" || upload_mode === "restart_structured") {
       if (!source_file_id || !Array.isArray(rows)) {
         return new Response(JSON.stringify({ error: "source_file_id and rows[] required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -541,6 +563,33 @@ Deno.serve(async (req) => {
       .eq("is_active", true);
     if (defsErr) throw defsErr;
 
+    if (upload_mode === "restart_structured") {
+      if (Number(start_index ?? 0) !== 0) {
+        return new Response(JSON.stringify({ error: "restart_structured must start at row 0" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const { data: allowed } = await userClient.from("source_files").select("id").eq("id", source_file_id).maybeSingle();
+      if (!allowed) return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const prepared = await prepareStructuredMapping(db, rows ?? [], (defs ?? []) as FieldDef[], { headers, filename });
+      await db.from("source_files").update({
+        status: "parsing",
+        error: null,
+        row_count: total_rows ?? rows?.length ?? 0,
+        column_mapping: prepared.mapping,
+        unmapped_columns: prepared.unmapped,
+        detected_company: prepared.detectedCompany,
+        mapping_template_id: prepared.mappingTemplateId,
+      }).eq("id", source_file_id);
+      await db.from("parsed_rows").delete().eq("source_file_id", source_file_id);
+      await insertRowsChunk(db, source_file_id!, rows ?? [], (defs ?? []) as FieldDef[], 0, prepared.mapping);
+      if (is_last_chunk) {
+        const finalize = finalizeStructuredParse(db, source_file_id!, total_rows ?? rows?.length ?? 0);
+        const er = (globalThis as any).EdgeRuntime;
+        if (typeof er?.waitUntil === "function") er.waitUntil(finalize);
+        else await finalize;
+      }
+      return new Response(JSON.stringify({ source_file_id }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (upload_mode === "append_structured") {
       const { data: allowed } = await userClient.from("source_files").select("id,column_mapping").eq("id", source_file_id).maybeSingle();
       if (!allowed) return new Response(JSON.stringify({ error: "Not found or no access" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -567,7 +616,7 @@ Deno.serve(async (req) => {
       filename,
       mime: mime ?? null,
       size_bytes: size_bytes ?? fileBytes?.byteLength ?? 0,
-      file_bytes: fileBytes,
+      file_bytes: fileBytes ? bytesToPostgresBytea(fileBytes) : null,
       status: "queued",
       row_count: fileKind === "structured" ? (rows?.length ?? 0) : 0,
       kind: fileKind,

@@ -101,8 +101,24 @@ function validate(def: FieldDef, value: any): string | null {
   return null;
 }
 
-const BATCH = 200;
-const MAX_INSERT_RETRIES = 4;
+const BATCH = 1000;
+const INSERT_CONCURRENCY = 5;
+const MAX_INSERT_RETRIES = 5;
+
+function decodeStoredBytes(raw: unknown): Uint8Array {
+  if (!raw || typeof raw !== "string") throw new Error("Original file bytes are not stored — please re-upload.");
+  const clean = raw.startsWith("\\x") ? raw.slice(2) : raw;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+  if (bytes[0] === 0x7b) {
+    try {
+      const obj = JSON.parse(new TextDecoder().decode(bytes));
+      const values = Object.keys(obj).sort((a, b) => Number(a) - Number(b)).map((k) => Number(obj[k]) & 255);
+      return new Uint8Array(values);
+    } catch {}
+  }
+  return bytes;
+}
 
 async function insertWithRetry(db: any, batch: any[]): Promise<void> {
   const tryInsert = async (rows: any[], attempt: number): Promise<void> => {
@@ -130,11 +146,7 @@ async function reparseInBackground(sourceFileId: string) {
     }
     if (!sf.file_bytes) throw new Error("Original file bytes are not stored — please re-upload.");
 
-    // file_bytes comes back as hex string "\\x..." from PostgREST
-    const hex: string = typeof sf.file_bytes === "string" ? sf.file_bytes : "";
-    const clean = hex.startsWith("\\x") ? hex.slice(2) : hex;
-    const bytes = new Uint8Array(clean.length / 2);
-    for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+    const bytes = decodeStoredBytes(sf.file_bytes);
 
     const wb = XLSX.read(bytes, { type: "array", cellDates: false });
     const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -167,8 +179,9 @@ async function reparseInBackground(sourceFileId: string) {
 
     await db.from("parsed_rows").delete().eq("source_file_id", sourceFileId);
 
+    const batches: any[][] = [];
     for (let start = 0; start < rows.length; start += BATCH) {
-      const chunk = rows.slice(start, start + BATCH).map((r, idx) => {
+      batches.push(rows.slice(start, start + BATCH).map((r, idx) => {
         const data: Record<string, any> = {};
         const confidence: Record<string, number> = {};
         const errs: Record<string, string> = {};
@@ -185,9 +198,25 @@ async function reparseInBackground(sourceFileId: string) {
           source_file_id: sourceFileId, row_index: start + idx, source_row: start + idx + 2,
           data, confidence, validation_errors: errs,
         };
-      });
-      await insertWithRetry(db, chunk);
+      }));
     }
+
+    let cursor = 0;
+    async function insertWorker() {
+      while (true) {
+        const i = cursor++;
+        if (i >= batches.length) return;
+        await insertWithRetry(db, batches[i]);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(INSERT_CONCURRENCY, batches.length) }, insertWorker));
+
+    const { count, error: countErr } = await db
+      .from("parsed_rows")
+      .select("id", { count: "exact", head: true })
+      .eq("source_file_id", sourceFileId);
+    if (countErr) throw countErr;
+    if ((count ?? 0) !== rows.length) throw new Error(`Only ${count ?? 0} of ${rows.length} rows were saved. Try Re-analyze again.`);
 
     try { await db.rpc("flag_duplicate_parsed_rows", { _source_file_id: sourceFileId }); }
     catch (e) { console.error("dedup flagging failed", e); }

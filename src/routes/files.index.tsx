@@ -193,7 +193,7 @@ function FilesPage() {
         try { msg = JSON.parse(text)?.error ?? text; } catch {}
         throw new Error(msg || `Retry failed (${r.status})`);
       }
-      toast.success("Re-parsing started");
+      toast.success("Re-analyzing started");
       refresh();
     } catch (e: any) {
       toast.error(e?.message ?? "Retry failed");
