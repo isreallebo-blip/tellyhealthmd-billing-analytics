@@ -96,7 +96,7 @@ function FilesPage() {
     const raw = (data as any).file_bytes as string | null;
     if (!raw) return toast.error("Original file bytes not stored");
     const bytes = hexToBytes(raw);
-    triggerDownload(new Blob([bytes], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+    triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
   }
 
   async function exportReviewed(f: SourceFile) {
