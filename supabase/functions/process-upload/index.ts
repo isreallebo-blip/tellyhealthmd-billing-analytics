@@ -655,8 +655,13 @@ Deno.serve(async (req) => {
     const requestedId = source_file_id ?? null;
     let sf: { id: string } | null = null;
     if (requestedId) {
-      const { data: existing } = await userClient.from("source_files").select("id").eq("id", requestedId).maybeSingle();
+      const { data: existing } = await userClient.from("source_files").select("id,status").eq("id", requestedId).maybeSingle();
       if (existing) {
+        if (!upload_mode && fileKind === "unstructured" && ["parsing", "needs_review", "approved"].includes(String(existing.status))) {
+          return new Response(JSON.stringify({ source_file_id: requestedId, already_processing: true }), {
+            status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
         const { error: updateErr } = await db.from("source_files").update({
           filename,
           mime: mime ?? null,
