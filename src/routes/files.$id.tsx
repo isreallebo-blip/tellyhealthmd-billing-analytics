@@ -240,9 +240,12 @@ function ReviewPage() {
       const text = await r.text();
       let data: any = null; try { data = text ? JSON.parse(text) : null; } catch {}
       if (!r.ok) throw new Error(data?.error ?? text ?? `Approve failed (${r.status})`);
-      // Edge function publishes in the background; navigate immediately so the
-      // user isn't blocked on the heavy claims_raw rebuild.
-      toast.success("Publishing in background — you'll see it as Approved shortly.");
+      // Edge function publishes in the background; mark this file as
+      // publishing so the Files list shows a clear "Publishing…" badge
+      // until realtime confirms status=approved.
+      const { publishingTracker } = await import("@/lib/publishing-tracker");
+      publishingTracker.mark(id);
+      toast.success("Publishing — this can take a couple of minutes for large files.");
       navigate({ to: "/files" });
     } catch (e: any) {
       toast.error(e?.message ?? "Approve failed");
