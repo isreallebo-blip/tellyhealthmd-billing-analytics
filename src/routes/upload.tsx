@@ -184,19 +184,39 @@ function UploadPage() {
     if (queue.length === 0) return toast.error("Add at least one file first");
     if (!profile) return;
     setSubmitting(true);
+
+    const files = queue.slice();
+    const CONCURRENCY = Math.min(6, Math.max(2, files.length));
+    let nextIndex = 0;
+    let done = 0;
     let firstId: string | null = null;
-    try {
-      for (let i = 0; i < queue.length; i++) {
-        const f = queue[i];
-        setProgress(`Uploading ${i + 1} of ${queue.length}: ${f.name}`);
+    const ids: (string | null)[] = new Array(files.length).fill(null);
+    const t0 = performance.now();
+    setProgress(`Uploading 0 of ${files.length} (parallel x${CONCURRENCY})…`);
+
+    async function worker() {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= files.length) return;
+        const f = files[i];
         try {
           const id = await submitFile(f);
-          if (!firstId) firstId = id;
-          toast.success(`${f.name} queued for parsing`);
+          ids[i] = id;
+          if (id && !firstId) firstId = id;
+          toast.success(`${f.name} queued`);
         } catch (err: any) {
           toast.error(`${f.name}: ${err?.message ?? "Failed"}`);
+        } finally {
+          done++;
+          setProgress(`Uploaded ${done} of ${files.length} (parallel x${CONCURRENCY})…`);
         }
       }
+    }
+
+    try {
+      await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      toast.success(`Sent ${done} file${done === 1 ? "" : "s"} in ${secs}s`);
       setQueue([]);
       if (inputRef.current) inputRef.current.value = "";
       if (firstId) navigate({ to: "/files/$id", params: { id: firstId } });

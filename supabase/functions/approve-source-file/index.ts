@@ -51,7 +51,8 @@ function adminClient() {
   return createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { persistSession: false } });
 }
 
-const BATCH = 500;
+const BATCH = 1000;
+const INSERT_CONCURRENCY = 4;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -158,12 +159,21 @@ Deno.serve(async (req) => {
           source_file_id,
         });
       }
-      for (let i = 0; i < toInsert.length; i += BATCH) {
-        const chunk = toInsert.slice(i, i + BATCH);
-        const { error: iErr } = await db.from("claims_raw").insert(chunk);
-        if (iErr) throw iErr;
-        inserted += chunk.length;
+      const chunks: any[][] = [];
+      for (let i = 0; i < toInsert.length; i += BATCH) chunks.push(toInsert.slice(i, i + BATCH));
+      let ci = 0;
+      async function insertWorker() {
+        while (true) {
+          const idx = ci++;
+          if (idx >= chunks.length) return;
+          const { error: iErr } = await db.from("claims_raw").insert(chunks[idx]);
+          if (iErr) throw iErr;
+          inserted += chunks[idx].length;
+        }
       }
+      await Promise.all(
+        Array.from({ length: Math.min(INSERT_CONCURRENCY, chunks.length) }, insertWorker)
+      );
       if (page.length < PAGE) break;
       from += PAGE;
     }
