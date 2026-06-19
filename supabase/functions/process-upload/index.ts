@@ -12,10 +12,50 @@ const corsHeaders = {
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANON_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY")!;
+const PUBLISHABLE_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY")!;
 
 type Row = Record<string, any>;
+
+function collectSecretCandidates(value: unknown, out: string[] = []): string[] {
+  if (!value) return out;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return out;
+    try { collectSecretCandidates(JSON.parse(trimmed), out); } catch { /* not JSON */ }
+    out.push(trimmed);
+    trimmed.split(/[\n,]/).map((part) => part.trim()).filter(Boolean).forEach((part) => out.push(part));
+    return out;
+  }
+  if (Array.isArray(value)) value.forEach((item) => collectSecretCandidates(item, out));
+  else if (typeof value === "object") Object.values(value).forEach((item) => collectSecretCandidates(item, out));
+  return out;
+}
+
+function jwtRole(token: string): string | null {
+  if (token.split(".").length !== 3) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role ?? null;
+  } catch { return null; }
+}
+
+function getServiceRoleKey(): string | null {
+  const candidates = [
+    ...collectSecretCandidates(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")),
+    ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEY")),
+    ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEYS")),
+  ];
+  return candidates.find((candidate) => jwtRole(candidate) === "service_role") ?? null;
+}
+
+function createDbClient(authHeader?: string) {
+  const serviceRoleKey = getServiceRoleKey();
+  if (serviceRoleKey) return createClient(SUPABASE_URL, serviceRoleKey, { auth: { persistSession: false } });
+  return createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
+    global: authHeader ? { headers: { Authorization: authHeader } } : undefined,
+    auth: { persistSession: false },
+  });
+}
 
 function parseDate(v: any): string | null {
   if (v == null || v === "") return null;
@@ -56,8 +96,8 @@ type Normalized = {
 
 const BATCH_SIZE = 500;
 
-async function processRows(jobId: string, userId: string, filename: string, rows: Row[]) {
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+async function processRows(jobId: string, userId: string, filename: string, rows: Row[], authHeader: string) {
+  const admin = createDbClient(authHeader);
 
   let inserted = 0, updated = 0, skipped = 0, unknownCpt = 0, processed = 0;
   const errors: string[] = [];
@@ -78,7 +118,7 @@ async function processRows(jobId: string, userId: string, filename: string, rows
   try {
     const [{ data: cptRef }, { data: overrides }] = await Promise.all([
       admin.from("cpt_reference").select("cpt_code,service_category,billing_type"),
-      admin.from("cpt_insurance_overrides").select("cpt_code,insurance_code,override_billing_type"),
+      admin.from("cpt_insurance_overrides").select("cpt_code,insurance_code,billing_type_override"),
     ]);
     const cptMap = new Map<string, { service_category: string | null; billing_type: string | null }>();
     cptRef?.forEach((r: any) =>
@@ -86,7 +126,7 @@ async function processRows(jobId: string, userId: string, filename: string, rows
     );
     const overrideMap = new Map<string, string>();
     overrides?.forEach((r: any) =>
-      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.override_billing_type)
+      overrideMap.set(`${String(r.cpt_code).toUpperCase()}|${String(r.insurance_code).toUpperCase()}`, r.billing_type_override)
     );
 
     // ── Phase 1: normalize every row in memory ──
@@ -301,7 +341,7 @@ Deno.serve(async (req) => {
   try {
     // Verify the caller
     const authHeader = req.headers.get("Authorization") ?? "";
-    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+    const userClient = createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
       global: { headers: { Authorization: authHeader } },
       auth: { persistSession: false },
     });
@@ -321,7 +361,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+    const admin = createDbClient(authHeader);
     const { data: job, error: jobErr } = await admin.from("upload_jobs").insert({
       user_id: userId,
       filename,
@@ -334,14 +374,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fire-and-forget background processing
-    // @ts-ignore - EdgeRuntime is available in Supabase Edge runtime
-    EdgeRuntime.waitUntil(processRows(job.id, userId, filename, rows));
+    // Prefer background processing when the runtime supports it. If not, run
+    // inline instead of throwing a 500 after the job row has already been made.
+    const processingPromise = processRows(job.id, userId, filename, rows, authHeader);
+    const edgeRuntime = (globalThis as any).EdgeRuntime;
+    if (typeof edgeRuntime?.waitUntil === "function") {
+      edgeRuntime.waitUntil(processingPromise);
+    } else {
+      await processingPromise;
+    }
 
     return new Response(JSON.stringify({ jobId: job.id }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
+    console.error("process-upload failed", err);
     return new Response(JSON.stringify({ error: err?.message ?? "Unexpected error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
