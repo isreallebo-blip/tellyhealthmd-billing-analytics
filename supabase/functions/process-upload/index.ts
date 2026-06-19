@@ -156,9 +156,9 @@ function validate(def: FieldDef, value: any): string | null {
 }
 
 type Row = Record<string, any>;
-const BATCH = 200;
-const INSERT_CONCURRENCY = 1;
-const MAX_INSERT_RETRIES = 4;
+const BATCH = 1000;
+const INSERT_CONCURRENCY = 5;
+const MAX_INSERT_RETRIES = 5;
 
 async function insertWithRetry(db: any, batch: any[]): Promise<void> {
   // Split-and-retry on statement timeout (57014) or transient errors.
