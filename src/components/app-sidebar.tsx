@@ -1,7 +1,7 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Activity, LayoutDashboard, Users, Settings, BookOpen, LogOut,
-  Upload, Sparkles, Brain, Loader2,
+  Upload, Sparkles, Brain, Loader2, FileText,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +13,7 @@ import { toast } from "sonner";
 const buildMainItems = (isAdmin: boolean) => [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Upload Data", url: "/upload", icon: Upload },
+  { title: "Files", url: "/files", icon: FileText },
   { title: "AI Insights", url: "/ai-insights", icon: Sparkles },
   { title: "AI Training", url: "/ai-training", icon: Brain },
   { title: "CPT Reference", url: isAdmin ? "/admin/cpt" : "/cpt-reference", icon: BookOpen },
