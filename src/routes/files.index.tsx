@@ -433,7 +433,15 @@ function FilesPage() {
                 <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                   No uploads yet. <Link to="/upload" className="text-primary hover:underline">Upload your first file</Link>.
                 </TableCell></TableRow>
-              ) : files.map((f) => (
+              ) : [...files].sort((a, b) => {
+                const dir = sortDir === "asc" ? 1 : -1;
+                const av = (a as any)[sortKey]; const bv = (b as any)[sortKey];
+                if (av == null && bv == null) return 0;
+                if (av == null) return 1; if (bv == null) return -1;
+                if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+                if (sortKey === "uploaded_at") return (new Date(av).getTime() - new Date(bv).getTime()) * dir;
+                return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }) * dir;
+              }).map((f) => (
                 <TableRow key={f.id} className="hover:bg-muted/40" data-state={selected.has(f.id) ? "selected" : undefined}>
                   <TableCell>
                     <Checkbox
