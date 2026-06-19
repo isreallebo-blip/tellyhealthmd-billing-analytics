@@ -1,22 +1,8 @@
-// Client-side text extraction for PDF / DOCX / TXT.
-// Returns the raw text content so the edge function can run LLM extraction.
-
-import mammoth from "mammoth";
+// Heavy unstructured text extraction. Importing this module pulls in
+// mammoth + pdfjs — only load it from code paths that actually parse files.
 
 const PDF_WORKER_SRC =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.0.227/build/pdf.worker.min.mjs";
-
-export type ExtractKind = "structured" | "unstructured";
-
-export function detectKind(filename: string): ExtractKind {
-  if (/\.(xlsx|xls|csv)$/i.test(filename)) return "structured";
-  if (/\.(pdf|docx|txt)$/i.test(filename)) return "unstructured";
-  return "structured";
-}
-
-export function isSupported(filename: string): boolean {
-  return /\.(xlsx|xls|csv|pdf|docx|txt)$/i.test(filename);
-}
 
 async function extractPdf(buf: ArrayBuffer): Promise<string> {
   const pdfjs: any = await import("pdfjs-dist/build/pdf.mjs");
@@ -36,6 +22,7 @@ async function extractPdf(buf: ArrayBuffer): Promise<string> {
 }
 
 async function extractDocx(buf: ArrayBuffer): Promise<string> {
+  const mammoth = (await import("mammoth")).default;
   const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
   return value.trim();
 }
@@ -51,3 +38,7 @@ export async function extractUnstructuredText(file: File): Promise<string> {
   if (/\.txt$/i.test(file.name)) return extractTxt(buf);
   throw new Error(`Unsupported unstructured file: ${file.name}`);
 }
+
+// Re-exports for backwards compatibility with code that imports from
+// @/lib/file-extract — these are now tiny, dependency-free helpers.
+export { detectKind, isSupported, type ExtractKind } from "@/lib/file-kind";
