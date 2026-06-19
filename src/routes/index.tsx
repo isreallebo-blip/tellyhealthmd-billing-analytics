@@ -265,7 +265,7 @@ function Dashboard() {
               className="text-left text-sm flex-1 hover:underline"
             >
               ⚠ <span className="font-medium">{pastThreshold.toLocaleString()} claims</span>{" "}
-              are past {threshold} days unpaid — review in AI Insights →
+              are past {threshold} days unpaid — review in Insights →
             </button>
             <button
               type="button"
@@ -350,7 +350,7 @@ function Dashboard() {
 
         <Tabs value={tab} onValueChange={setTab} className="w-full">
           <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value="insights">AI Analysis</TabsTrigger>
+            <TabsTrigger value="insights">Analysis</TabsTrigger>
             <TabsTrigger value="insurance">By Insurance</TabsTrigger>
             <TabsTrigger value="provider">By Provider</TabsTrigger>
             <TabsTrigger value="cpt">By CPT</TabsTrigger>

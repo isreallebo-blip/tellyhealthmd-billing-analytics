@@ -14,7 +14,7 @@ export const Route = createFileRoute("/admin/settings")({
   head: () => ({
     meta: [
       { title: "Settings — TellyHealthMD Billing Analytics" },
-      { name: "description", content: "Configure alerts and AI training instructions." },
+      { name: "description", content: "Configure alerts and training instructions." },
     ],
   }),
   component: () => (
@@ -73,7 +73,7 @@ function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Alert thresholds and AI training instructions." />
+      <PageHeader title="Settings" description="Alert thresholds and training instructions." />
       <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader><CardTitle>Payment alert threshold</CardTitle></CardHeader>
@@ -98,10 +98,10 @@ function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>AI training instructions</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Training instructions</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <Textarea
-              placeholder="Add guidance for AI-assisted analysis of claims…"
+              placeholder="Add guidance for system-assisted analysis of claims…"
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
               rows={4}
