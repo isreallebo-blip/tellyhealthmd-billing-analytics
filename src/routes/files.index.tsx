@@ -88,6 +88,70 @@ function FilesPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
+
+  const allSelected = files.length > 0 && selected.size === files.length;
+  const someSelected = selected.size > 0 && !allSelected;
+  const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(files.map((f) => f.id)));
+  const clearSelection = () => setSelected(new Set());
+
+  async function bulkDelete() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    setBulkBusy("delete");
+    const { error } = await supabase.from("source_files" as any).delete().in("id", ids);
+    setBulkBusy(null);
+    if (error) return toast.error(error.message);
+    toast.success(`Deleted ${ids.length} file${ids.length === 1 ? "" : "s"}`);
+    setFiles((prev) => prev.filter((x) => !selected.has(x.id)));
+    clearSelection();
+  }
+
+  async function bulkExport() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    setBulkBusy("export");
+    let exported = 0;
+    for (const id of ids) {
+      const f = files.find((x) => x.id === id);
+      if (!f || f.row_count === 0) continue;
+      const { data, error } = await supabase
+        .from("parsed_rows" as any)
+        .select("row_index,data,is_duplicate,validation_errors,edited")
+        .eq("source_file_id", id)
+        .order("row_index", { ascending: true });
+      if (error || !data?.length) continue;
+      const rows = (data as any[]).map((r) => ({ ...(r.data ?? {}), _row: r.row_index, _duplicate: r.is_duplicate, _edited: r.edited }));
+      const csv = toCSV(rows);
+      const base = f.filename.replace(/\.[^.]+$/, "");
+      triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${base}-reviewed.csv`);
+      exported++;
+    }
+    setBulkBusy(null);
+    toast.success(`Exported ${exported} file${exported === 1 ? "" : "s"}`);
+  }
+
+  async function bulkDownloadOriginals() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    setBulkBusy("download");
+    let n = 0;
+    for (const id of ids) {
+      const f = files.find((x) => x.id === id);
+      if (!f) continue;
+      const { data, error } = await supabase.from("source_files" as any).select("file_bytes,mime").eq("id", id).single();
+      if (error || !data) continue;
+      const raw = (data as any).file_bytes as string | null;
+      if (!raw) continue;
+      const bytes = hexToBytes(raw);
+      triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: (data as any).mime || "application/octet-stream" }), f.filename);
+      n++;
+    }
+    setBulkBusy(null);
+    toast.success(`Downloaded ${n} original${n === 1 ? "" : "s"}`);
+  }
 
   async function downloadOriginal(f: SourceFile) {
     setBusy(f.id + ":dl");
