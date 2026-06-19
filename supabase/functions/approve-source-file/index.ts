@@ -169,7 +169,7 @@ Deno.serve(async (req) => {
       approved_at: new Date().toISOString(),
     }).eq("id", source_file_id);
 
-    return new Response(JSON.stringify({ inserted, skipped }), {
+    return new Response(JSON.stringify({ inserted, skipped, duplicates_skipped: dupSkipped }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
