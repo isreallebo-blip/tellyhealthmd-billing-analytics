@@ -17,10 +17,6 @@ const buildMainItems = (isAdmin: boolean) => [
   { title: "Exports", url: "/exports", icon: Download },
   { title: "AI Insights", url: "/ai-insights", icon: Sparkles },
   { title: "AI Training", url: "/ai-training", icon: Brain },
-  { title: "CPT Reference", url: isAdmin ? "/admin/cpt" : "/cpt-reference", icon: BookOpen },
-];
-
-const adminItems = [
   { title: "Notifications", url: "/notifications", icon: Bell },
   { title: "CPT Reference", url: isAdmin ? "/admin/cpt" : "/cpt-reference", icon: BookOpen },
 ];
