@@ -204,7 +204,7 @@ function Dashboard() {
       setStatsLoading(false);
     }, 300);
     return () => clearTimeout(handle);
-  }, [profile, filterDeps]);
+  }, [profile, filterDeps, refreshTick]);
 
   // Fetch unpaid rows for cross-analysis tab (debounced, only when tab is active)
   useEffect(() => {
