@@ -169,7 +169,7 @@ async function reparseInBackground(sourceFileId: string) {
         }
         return {
           source_file_id: sourceFileId, row_index: start + idx, source_row: start + idx + 2,
-          data, raw_data: r, confidence, validation_errors: errs,
+          data, confidence, validation_errors: errs,
         };
       });
       const { error } = await db.from("parsed_rows").insert(chunk);

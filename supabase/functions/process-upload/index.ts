@@ -156,8 +156,8 @@ function validate(def: FieldDef, value: any): string | null {
 }
 
 type Row = Record<string, any>;
-const BATCH = 1000;
-const INSERT_CONCURRENCY = 4;
+const BATCH = 2000;
+const INSERT_CONCURRENCY = 8;
 
 // ── LLM extraction for unstructured text (PDF/DOCX/TXT) ──
 async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<Row[]> {
@@ -345,7 +345,6 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
           row_index: start + idx,
           source_row: start + idx + 2,
           data,
-          raw_data: r,
           confidence,
           validation_errors: errs,
         };
