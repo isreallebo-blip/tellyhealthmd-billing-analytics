@@ -41,18 +41,23 @@ function getServiceRoleKey(): string | null {
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEY")),
     ...collectSecretCandidates(Deno.env.get("SUPABASE_SECRET_KEYS")),
   ];
-  // Prefer a verified JWT with service_role; otherwise accept the new sb_secret_* format.
+  // Ticket 6: only accept a verified service_role JWT or the new sb_secret_* key.
+  // Do NOT fall back to an arbitrary unverified string — this is a PHI system
+  // and we'd rather fail loudly than silently run with the wrong credential.
   return (
     c.find((k) => jwtRole(k) === "service_role") ??
     c.find((k) => k.startsWith("sb_secret_")) ??
-    c[0] ??
     null
   );
 }
 function adminClient() {
   const k = getServiceRoleKey();
-  if (k) return createClient(SUPABASE_URL, k, { auth: { persistSession: false } });
-  return createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { persistSession: false } });
+  if (!k) {
+    // Fail closed: callers expect privileged access. Surfacing this loudly
+    // beats silently downgrading to the publishable key.
+    throw new Error("Service role key is not configured (SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY).");
+  }
+  return createClient(SUPABASE_URL, k, { auth: { persistSession: false } });
 }
 
 // ── normalizers ──
@@ -181,13 +186,16 @@ async function insertWithRetry(db: any, batch: any[]): Promise<void> {
 }
 
 // ── LLM extraction for unstructured text (PDF/DOCX/TXT) ──
-async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<Row[]> {
+// Ticket 5: returns rows AND whether the input was clipped, so the caller can
+// surface a warning instead of silently dropping the tail of long documents.
+async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<{ rows: Row[]; truncated: boolean; originalChars: number; usedChars: number }> {
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
 
   // Cap input to keep prompt within model limits (~120k chars ≈ 30k tokens)
   const MAX = 120_000;
-  const clipped = text.length > MAX ? text.slice(0, MAX) : text;
+  const truncated = text.length > MAX;
+  const clipped = truncated ? text.slice(0, MAX) : text;
 
   const fieldDescriptions = defs.map((d) =>
     `- ${d.field_key} (${d.data_type})${d.label !== d.field_key ? ` — ${d.label}` : ""}`
@@ -259,7 +267,12 @@ async function extractRowsFromText(text: string, defs: FieldDef[]): Promise<Row[
   try { parsed = JSON.parse(argsStr); }
   catch { throw new Error("AI returned malformed JSON"); }
   const rows = Array.isArray(parsed?.rows) ? parsed.rows : [];
-  return rows.filter((r: any) => r && typeof r === "object");
+  return {
+    rows: rows.filter((r: any) => r && typeof r === "object"),
+    truncated,
+    originalChars: text.length,
+    usedChars: clipped.length,
+  };
 }
 
 async function processInBackground(sourceFileId: string, rows: Row[], defs: FieldDef[], opts?: { text?: string; kind?: string; filename?: string }) {
