@@ -396,6 +396,78 @@ async function processInBackground(sourceFileId: string, rows: Row[], defs: Fiel
   }
 }
 
+async function prepareStructuredMapping(db: any, rows: Row[], defs: FieldDef[], opts: { headers?: string[]; filename?: string }) {
+  const headerSet = new Set<string>(opts.headers ?? []);
+  rows.forEach((r) => Object.keys(r ?? {}).forEach((h) => headerSet.add(h)));
+  const headers = Array.from(headerSet);
+  const validKeys = new Set(defs.map((d) => d.field_key));
+  const mapping: Record<string, { field: string | null; confidence: number }> = {};
+  let detectedCompany: string | null = null;
+
+  for (const r of rows) {
+    for (const h of headers) {
+      if (norm(h) === norm("company")) {
+        const v = normText((r as any)[h]);
+        if (v) { detectedCompany = v; break; }
+      }
+    }
+    if (detectedCompany) break;
+  }
+
+  let appliedTemplate: { id: string; mapping: Record<string, string> } | null = null;
+  try {
+    const { data: tpls } = await db.from("mapping_templates")
+      .select("id,match_company,match_filename_pattern,mapping,priority")
+      .eq("is_active", true).order("priority", { ascending: false });
+    for (const t of (tpls ?? []) as any[]) {
+      const companyMatch = t.match_company
+        ? (detectedCompany && detectedCompany.toLowerCase() === String(t.match_company).toLowerCase())
+        : false;
+      let fileMatch = false;
+      if (t.match_filename_pattern && opts.filename) {
+        try { fileMatch = new RegExp(t.match_filename_pattern, "i").test(opts.filename); } catch {}
+      }
+      if (companyMatch || fileMatch) { appliedTemplate = { id: t.id, mapping: t.mapping ?? {} }; break; }
+    }
+  } catch (e) { console.error("template lookup failed", e); }
+
+  for (const h of headers) {
+    const tpl = appliedTemplate?.mapping?.[h];
+    mapping[h] = tpl && validKeys.has(tpl) ? { field: tpl, confidence: 1.0 } : mapColumn(h, defs);
+  }
+
+  return {
+    mapping,
+    unmapped: Object.entries(mapping).filter(([, m]) => !m.field).map(([h]) => h),
+    detectedCompany,
+    mappingTemplateId: appliedTemplate?.id ?? null,
+  };
+}
+
+async function insertRowsChunk(db: any, sourceFileId: string, rows: Row[], defs: FieldDef[], startIndex: number, mapping: Record<string, { field: string | null; confidence: number }>) {
+  const defByKey = new Map(defs.map((d) => [d.field_key, d]));
+  const parsed = rows.map((r, idx) => {
+    const data: Record<string, any> = {};
+    const confidence: Record<string, number> = {};
+    const errs: Record<string, string> = {};
+    for (const [h, m] of Object.entries(mapping)) {
+      if (!m.field) continue;
+      const def = defByKey.get(m.field); if (!def) continue;
+      const value = normalizeByType(def.data_type, (r as any)[h]);
+      data[m.field] = value;
+      const err = validate(def, value);
+      confidence[m.field] = err ? 0 : m.confidence;
+      if (err) errs[m.field] = err;
+    }
+    return { source_file_id: sourceFileId, row_index: startIndex + idx, source_row: startIndex + idx + 2, data, confidence, validation_errors: errs };
+  });
+  if (!parsed.length) return;
+  await db.from("parsed_rows").delete().eq("source_file_id", sourceFileId).gte("row_index", startIndex).lt("row_index", startIndex + parsed.length);
+  for (let start = 0; start < parsed.length; start += BATCH) {
+    await insertWithRetry(db, parsed.slice(start, start + BATCH));
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") {
