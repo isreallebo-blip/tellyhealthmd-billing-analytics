@@ -643,7 +643,10 @@ Deno.serve(async (req) => {
         }
       }
       await insertRowsChunk(db, source_file_id!, rows ?? [], (defs ?? []) as FieldDef[], Number(start_index ?? 0), allowed.column_mapping ?? {});
-      await db.from("source_files").update({ row_count: total_rows ?? rows?.length ?? 0, status: "parsing", error: null }).eq("id", source_file_id);
+      await db.from("source_files")
+        .update({ row_count: total_rows ?? rows?.length ?? 0, status: "parsing", error: null })
+        .eq("id", source_file_id)
+        .not("status", "in", "(needs_review,approved)");
       if (is_last_chunk) {
         const finalize = finalizeStructuredParse(db, source_file_id!, total_rows ?? rows?.length ?? 0);
         const er = (globalThis as any).EdgeRuntime;
