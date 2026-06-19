@@ -91,6 +91,7 @@ function FilesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<null | "delete" | "export" | "download">(null);
+  const [progress, setProgress] = useState<Record<string, number>>({});
 
   const allSelected = files.length > 0 && selected.size === files.length;
   const someSelected = selected.size > 0 && !allSelected;
